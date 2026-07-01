@@ -1,0 +1,19 @@
+<svg width="360" height="116" viewBox="0 0 360 116" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nexa - conectando pessoas e transformando resultados">
+  <defs>
+    <linearGradient id="nexaLogoBlue" x1="77" y1="18" x2="112" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A90E2"/>
+      <stop offset="1" stop-color="#002366"/>
+    </linearGradient>
+    <linearGradient id="nexaLogoFacet" x1="82" y1="24" x2="111" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#63B2FF"/>
+      <stop offset="1" stop-color="#1D5FAE"/>
+    </linearGradient>
+  </defs>
+  <path d="M17 18L43 37V75L17 94V18Z" fill="#002366"/>
+  <path d="M43 37L73 62V96L43 75V37Z" fill="#002366"/>
+  <path d="M75 49L108 18V94L75 71V49Z" fill="url(#nexaLogoBlue)"/>
+  <path d="M75 49L108 18V52L89 68L75 59V49Z" fill="url(#nexaLogoFacet)"/>
+  <text x="132" y="68" fill="#002366" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="800" letter-spacing="-2">Nexa</text>
+  <text x="135" y="89" fill="#002366" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="800" letter-spacing="2.1">CONECTANDO PESSOAS</text>
+  <text x="135" y="104" fill="#002366" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="800" letter-spacing="1.35">E TRANSFORMANDO RESULTADOS</text>
+</svg>

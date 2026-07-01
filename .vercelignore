@@ -1,0 +1,9 @@
+.git
+.DS_Store
+README.md
+extract_data.py
+scripts
+supabase
+*.xlsx
+*.xls
+*.csv

@@ -1,0 +1,17 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nexa">
+  <defs>
+    <linearGradient id="nexaBlue" x1="53" y1="20" x2="84" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A90E2"/>
+      <stop offset="1" stop-color="#002366"/>
+    </linearGradient>
+    <linearGradient id="nexaFacet" x1="62" y1="24" x2="82" y2="49" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#63B2FF"/>
+      <stop offset="1" stop-color="#1D5FAE"/>
+    </linearGradient>
+  </defs>
+  <path d="M9 17L31 33V64L9 80V17Z" fill="#002366"/>
+  <path d="M31 33L56 54V82L31 64V33Z" fill="#002366"/>
+  <path d="M57 43L84 17V80L57 61V43Z" fill="url(#nexaBlue)"/>
+  <path d="M57 43L84 17V45L68 58L57 51V43Z" fill="url(#nexaFacet)"/>
+  <path d="M31 33L56 54V82L31 64V33Z" fill="#002366" fill-opacity="0.94"/>
+</svg>

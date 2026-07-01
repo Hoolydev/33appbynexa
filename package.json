@@ -1,0 +1,10 @@
+{
+  "name": "nexa-33doctor-implantacoes",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "python3 -m http.server 4173",
+    "build": "node build-config.js && node --check app.js",
+    "start": "python3 -m http.server 4173"
+  }
+}
