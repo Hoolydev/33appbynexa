@@ -1872,9 +1872,16 @@ select:focus {
 
 .dashboard-toolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
-  align-items: end;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  align-items: center;
   gap: 14px;
+}
+
+.dashboard-toolbar strong {
+  display: block;
+  color: var(--ink);
+  font-size: 18px;
+  margin-top: 3px;
 }
 
 .implantation-hero-panel {
@@ -2119,6 +2126,53 @@ select:focus {
 
 .unit-focus-workspace .unit-detail {
   padding-top: 0;
+}
+
+.record-form {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.record-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.record-form-head h3 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.record-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.record-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.record-form-grid .span-2 {
+  grid-column: span 2;
+}
+
+.record-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .franchise-meta-grid {
@@ -2884,7 +2938,7 @@ select.info {
   }
 
   .nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
 
   .topbar,
@@ -2906,6 +2960,7 @@ select.info {
   .status-overview-grid,
   .franchise-grid,
   .dashboard-toolbar,
+  .record-form-grid,
   .unit-detail,
   .franchise-meta-grid,
   .unit-summary-grid,
@@ -2914,6 +2969,10 @@ select.info {
   .filters,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .record-form-grid .span-2 {
+    grid-column: auto;
   }
 
   .schedule-hero,

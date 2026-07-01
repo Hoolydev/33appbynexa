@@ -13,9 +13,11 @@ const state = {
   },
   dashboardUnit: "all",
   expandedUnitId: "",
+  franchiseWorkspaceUnitId: "",
   unitTabs: readStorage("franchiseUnitTabs", {}),
   accreditationUnit: "all",
   statusOverrides: readStorage("franchiseStatusOverrides", {}),
+  unitRecords: readStorage("franchiseUnitRecords", {}),
   drafts: readStorage("franchiseDrafts", []),
   auth: readStorage("appSession", null),
   loading: false,
@@ -83,7 +85,10 @@ app.addEventListener("change", async (event) => {
   }
   if (target.matches("[data-dashboard-unit]")) {
     state.dashboardUnit = target.value;
-    state.expandedUnitId = target.value === "all" ? "" : target.value;
+    render();
+  }
+  if (target.matches("[data-franchise-workspace-unit]")) {
+    state.franchiseWorkspaceUnitId = target.value;
     render();
   }
   if (target.matches("[data-status-id]")) {
@@ -94,25 +99,25 @@ app.addEventListener("change", async (event) => {
 app.addEventListener("click", (event) => {
   const selectUnit = event.target.closest("[data-select-unit]");
   if (selectUnit) {
-    state.dashboardUnit = selectUnit.dataset.selectUnit;
-    state.expandedUnitId = selectUnit.dataset.selectUnit;
-    state.view = "dashboard";
-    activateNav("dashboard");
+    state.franchiseWorkspaceUnitId = selectUnit.dataset.selectUnit;
+    state.view = "franchises";
+    activateNav("franchises");
     render();
   }
 
   const toggleUnit = event.target.closest("[data-toggle-unit]");
   if (toggleUnit) {
-    const unitId = toggleUnit.dataset.toggleUnit;
-    state.dashboardUnit = unitId;
-    state.expandedUnitId = unitId;
+    state.franchiseWorkspaceUnitId = toggleUnit.dataset.toggleUnit;
+    state.view = "franchises";
+    activateNav("franchises");
     render();
   }
 
-  const clearUnit = event.target.closest("[data-clear-dashboard-unit]");
+  const clearUnit = event.target.closest("[data-clear-franchise-unit]");
   if (clearUnit) {
-    state.dashboardUnit = "all";
-    state.expandedUnitId = "";
+    state.franchiseWorkspaceUnitId = "";
+    state.view = "franchises";
+    activateNav("franchises");
     render();
   }
 
@@ -126,6 +131,11 @@ app.addEventListener("click", (event) => {
     state.unitTabs[unitTab.dataset.unitId] = unitTab.dataset.unitTab;
     writeStorage("franchiseUnitTabs", state.unitTabs);
     render();
+  }
+
+  const addRecord = event.target.closest("[data-add-unit-record]");
+  if (addRecord) {
+    addUnitRecord(addRecord);
   }
 
   const removeDraft = event.target.closest("[data-remove-draft]");
@@ -237,6 +247,7 @@ async function loadSupabaseData() {
   state.selectedUnitId = data.units[0]?.id || "";
   state.dashboardUnit = "all";
   state.expandedUnitId = "";
+  state.franchiseWorkspaceUnitId = "";
 }
 
 function normalizeLoadedData(payload) {
@@ -283,6 +294,7 @@ function updateSourceCount() {
 function render() {
   const titles = {
     dashboard: "Dashboard",
+    franchises: "Franquias",
     units: "Unidades",
     roadmap: "Roadmap",
     purchases: "Compras",
@@ -293,6 +305,7 @@ function render() {
 
   const views = {
     dashboard: renderDashboard,
+    franchises: renderFranchises,
     units: renderUnits,
     roadmap: renderRoadmap,
     purchases: renderPurchases,
@@ -594,10 +607,7 @@ function matchesSearch(...values) {
 
 function renderDashboard() {
   const units = roadmapUnits();
-  const focusedUnit = state.dashboardUnit === "all" ? null : units.find((unit) => unit.id === state.dashboardUnit);
-  if (focusedUnit) return renderUnitWorkspacePage(focusedUnit, units);
-
-  const visibleUnits = state.dashboardUnit === "all" ? units : units.filter((unit) => unit.id === state.dashboardUnit);
+  const visibleUnits = units;
   const tasks = visibleUnits.flatMap((unit) => unit.tasks);
   const purchases = visibleUnits.flatMap((unit) => unit.purchases || []);
   const done = tasks.filter((task) => getStatus(task) === "Concluído").length;
@@ -619,13 +629,10 @@ function renderDashboard() {
 
   return `
     <section class="toolbar-panel dashboard-toolbar">
-      <label>
-        <span class="small-label">Unidade</span>
-        <select data-dashboard-unit>
-          <option value="all"${state.dashboardUnit === "all" ? " selected" : ""}>Todas as unidades</option>
-          ${units.map((unit) => `<option value="${unit.id}"${state.dashboardUnit === unit.id ? " selected" : ""}>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</option>`).join("")}
-        </select>
-      </label>
+      <div>
+        <span class="small-label">Visão executiva</span>
+        <strong>Todas as unidades</strong>
+      </div>
       <div class="view-tabs">
         <span class="view-tab active">Visão geral</span>
         <span class="view-tab">Roadmap</span>
@@ -657,22 +664,6 @@ function renderDashboard() {
       ${kpi("Credenciamentos concluídos", closedCred, `${data.accreditation.procedures.length} procedimentos base`)}
       ${kpi("Tempo médio de implantação", averageDaysLabel(visibleUnits), "prazo até inauguração")}
     </div>
-
-    <section class="panel implantation-board">
-      <div class="panel-heading-row">
-        <div>
-          <span class="small-label">Pasta digital por franquia</span>
-          <h2>Franquias cadastradas</h2>
-        </div>
-        <span class="badge info">${visibleUnits.length} unidade(s)</span>
-      </div>
-      <div class="franchise-grid">
-          ${visibleUnits
-            .filter((unit) => matchesSearch(unit.name, unit.franchisee, unit.city))
-            .map((unit) => dashboardUnitRow(unit))
-            .join("") || empty("Nenhuma unidade encontrada")}
-      </div>
-    </section>
 
     <div class="grid two-col" style="margin-top:16px">
       <section class="panel">
@@ -730,6 +721,50 @@ function renderDashboard() {
   `;
 }
 
+function renderFranchises() {
+  const units = roadmapUnits();
+  const focusedUnit = state.franchiseWorkspaceUnitId ? units.find((unit) => unit.id === state.franchiseWorkspaceUnitId) : null;
+  if (focusedUnit) return renderUnitWorkspacePage(focusedUnit, units);
+
+  const visibleUnits = units.filter((unit) => matchesSearch(unit.name, unit.franchisee, unit.city, unit.state));
+  const statusCounts = unitStatusCounts(units);
+  const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
+  const openPendencies = units.reduce((sum, unit) => sum + unitStats(unit).openPending, 0);
+  const criticalUnits = units.filter((unit) => ["Implantação crítica", "Em atraso"].includes(unitStatus(unit).label)).length;
+
+  return `
+    <section class="implantation-hero-panel franchises-hero">
+      <div>
+        <span class="small-label">Pasta digital das franquias</span>
+        <h2>Carteira completa de unidades</h2>
+        <p>Selecione uma franquia para abrir a tela inteira com cronograma, documentos, treinamentos, atas, pendências, credenciamentos e campos de atualização operacional.</p>
+      </div>
+      <div class="status-overview-grid">
+        ${statusOverview("Total", units.length, "blue")}
+        ${statusOverview("Progresso médio", `${avg}%`, "green")}
+        ${statusOverview("Pendências", openPendencies, "yellow")}
+        ${statusOverview("Em risco", criticalUnits, "red")}
+      </div>
+    </section>
+
+    <section class="panel implantation-board">
+      <div class="panel-heading-row">
+        <div>
+          <span class="small-label">Franquias</span>
+          <h2>Painel de unidades</h2>
+        </div>
+        <div class="badge-row">
+          <span class="badge info">${visibleUnits.length} visível(is)</span>
+          <span class="badge">${statusCounts["Em implantação"] || 0} em implantação</span>
+        </div>
+      </div>
+      <div class="franchise-grid">
+        ${visibleUnits.map((unit) => dashboardUnitRow(unit)).join("") || empty("Nenhuma unidade encontrada")}
+      </div>
+    </section>
+  `;
+}
+
 function unitStatusCounts(units) {
   return units.reduce((acc, unit) => {
     const label = unitStatus(unit).label;
@@ -754,11 +789,10 @@ function renderUnitWorkspacePage(unit, units) {
   const risk = riskLevel(unit);
   return `
     <section class="toolbar-panel unit-focus-toolbar">
-      <button class="ghost-button" data-clear-dashboard-unit type="button">Voltar para carteira</button>
+      <button class="ghost-button" data-clear-franchise-unit type="button">Voltar para franquias</button>
       <label>
         <span class="small-label">Trocar unidade</span>
-        <select data-dashboard-unit>
-          <option value="all">Todas as unidades</option>
+        <select data-franchise-workspace-unit>
           ${units.map((item) => `<option value="${item.id}"${unit.id === item.id ? " selected" : ""}>${escapeHtml(item.city)} ${escapeHtml(item.state || "")}</option>`).join("")}
         </select>
       </label>
@@ -1003,28 +1037,48 @@ function renderUnitKpis(unit, stats) {
 }
 
 function renderUnitAccreditation(unit, stats) {
-  const counts = accreditationSummary(stats.accreditation);
+  const manualRows = customRecords(unit, "accreditations").map((record) => ({
+    group: record.group || "Manual",
+    name: record.name || "Credenciamento",
+    status: record.status || "Pendente",
+    requestDate: record.requestDate || "",
+    approvalDate: record.approvalDate || "",
+    owner: record.owner || unit.owner || unit.ownerName || "Credenciamento",
+    attachments: record.attachments || "Sem anexo",
+    notes: record.notes || "Inserido manualmente",
+  }));
+  const rows = [...manualRows, ...stats.accreditation];
+  const counts = accreditationSummary(rows);
   return `
     <div class="grid kpi-grid compact-kpis">
-      ${kpi("Total", stats.accreditation.length, "credenciamentos")}
+      ${kpi("Total", rows.length, "credenciamentos")}
       ${kpi("Concluídos", counts.closed, "aprovados/fechados")}
       ${kpi("Pendentes", counts.pending, "sem status")}
       ${kpi("Em análise", counts.review, "em negociação")}
       ${kpi("Reprovados", counts.rejected, "recusados")}
     </div>
+    ${recordForm(unit, "accreditations", [
+      { name: "name", label: "Tipo", placeholder: "Ex.: Vigilância Sanitária" },
+      { name: "status", label: "Status", type: "select", options: ["Pendente", "Em análise", "Aprovado", "Reprovado", "Fechado"] },
+      { name: "requestDate", label: "Solicitação", type: "date" },
+      { name: "approvalDate", label: "Aprovação", type: "date" },
+      { name: "owner", label: "Responsável", placeholder: "Responsável interno" },
+      { name: "attachments", label: "Anexos", placeholder: "Link ou nome do arquivo" },
+      { name: "notes", label: "Observações", type: "textarea", placeholder: "Histórico, retorno do órgão, próximos passos" },
+    ], "Adicionar credenciamento")}
     <div class="table-wrap">
       <table class="workspace-table compact-table">
         <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Anexos</th><th>Observações</th></tr></thead>
         <tbody>
-          ${stats.accreditation.map((item) => `
+          ${rows.map((item) => `
             <tr>
               <td><span class="row-title">${escapeHtml(item.name)}</span><small>${escapeHtml(item.group)}</small></td>
               <td>${heatCell(item.status)}</td>
-              <td>${formatDate(contractDate(unit))}</td>
-              <td>${isAccreditationClosed(item.status) ? formatDate(unit.openingDate) : "pendente"}</td>
-              <td>${escapeHtml(unit.owner || unit.ownerName || "Credenciamento")}</td>
-              <td>Sem anexo</td>
-              <td>${escapeHtml(item.status || "Aguardando atualização")}</td>
+              <td>${formatDate(item.requestDate || contractDate(unit))}</td>
+              <td>${item.approvalDate ? formatDate(item.approvalDate) : isAccreditationClosed(item.status) ? formatDate(unit.openingDate) : "pendente"}</td>
+              <td>${escapeHtml(item.owner || unit.owner || unit.ownerName || "Credenciamento")}</td>
+              <td>${escapeHtml(item.attachments || "Sem anexo")}</td>
+              <td>${escapeHtml(item.notes || item.status || "Aguardando atualização")}</td>
             </tr>
           `).join("") || `<tr><td colspan="7">${empty("Sem credenciamentos mapeados")}</td></tr>`}
         </tbody>
@@ -1034,9 +1088,33 @@ function renderUnitAccreditation(unit, stats) {
 }
 
 function renderUnitDocuments(unit, stats) {
-  return renderGenericTable(
+  const manualRows = customRecords(unit, "documents").map((record) => ({
+    name: record.name || "Documento",
+    category: record.category || "Documento da empresa",
+    version: record.version || "v1",
+    date: record.date || "",
+    owner: record.owner || unit.owner || unit.ownerName || "Implantação",
+    status: record.status || "Pendente",
+    signature: record.signature || "Não informado",
+    history: record.history || record.notes || "Inserido manualmente",
+    file: record.file || "Sem arquivo",
+  }));
+  const rows = [...manualRows, ...stats.documents];
+  return `
+    ${recordForm(unit, "documents", [
+      { name: "name", label: "Nome", placeholder: "Ex.: Contrato social" },
+      { name: "category", label: "Categoria", type: "select", options: ["Contratos", "Alvarás", "Licenças", "Manual da franquia", "Marketing", "Financeiro", "Documentos da empresa"] },
+      { name: "version", label: "Versão", placeholder: "v1" },
+      { name: "date", label: "Data", type: "date" },
+      { name: "owner", label: "Responsável", placeholder: "Quem acompanha" },
+      { name: "status", label: "Status", type: "select", options: ["Pendente", "Em análise", "Aprovado", "Reprovado"] },
+      { name: "signature", label: "Assinatura", type: "select", options: ["Não informado", "Aplicável", "Não aplicável", "Assinado"] },
+      { name: "file", label: "Arquivo", placeholder: "Link ou nome do arquivo" },
+      { name: "history", label: "Histórico", type: "textarea", placeholder: "Observações e versões anteriores" },
+    ], "Adicionar documento")}
+    ${renderGenericTable(
     ["Nome", "Categoria", "Versão", "Data", "Responsável", "Status", "Assinatura", "Histórico", "Arquivo"],
-    stats.documents,
+    rows,
     (item) => [
       item.name,
       item.category,
@@ -1046,44 +1124,160 @@ function renderUnitDocuments(unit, stats) {
       item.status,
       item.signature,
       item.history,
-      "Visualizar / download pendente",
+      item.file || "Visualizar / download pendente",
     ],
     "Nenhum documento mapeado a partir do roadmap"
-  );
+  )}
+  `;
 }
 
 function renderUnitTraining(unit, stats) {
-  return renderGenericTable(
+  const manualRows = customRecords(unit, "trainings").map((record) => ({
+    name: record.name || "Treinamento",
+    date: record.date || "",
+    instructor: record.instructor || "Equipe Nexa",
+    participants: record.participants || unit.franchisee || "Equipe da unidade",
+    workload: record.workload || "A definir",
+    certificate: record.certificate || "Pendente",
+    status: record.status || "Pendente",
+    attendance: record.attendance || "Pendente",
+    material: record.material || "Material operacional",
+    attachments: record.attachments || "Sem anexo",
+  }));
+  const rows = [...manualRows, ...stats.trainings];
+  return `
+    ${recordForm(unit, "trainings", [
+      { name: "name", label: "Nome", placeholder: "Ex.: Treinamento de atendimento" },
+      { name: "date", label: "Data", type: "date" },
+      { name: "instructor", label: "Instrutor", placeholder: "Instrutor ou área" },
+      { name: "participants", label: "Participantes", placeholder: "Equipe envolvida" },
+      { name: "workload", label: "Carga horária", placeholder: "Ex.: 4h" },
+      { name: "certificate", label: "Certificado", type: "select", options: ["Pendente", "Liberado", "Não aplicável"] },
+      { name: "status", label: "Status", type: "select", options: ["Pendente", "Em Andamento", "Concluído"] },
+      { name: "attendance", label: "Presença", placeholder: "Registrada, pendente..." },
+      { name: "material", label: "Material", placeholder: "Manual, vídeo, apresentação" },
+      { name: "attachments", label: "Anexos", placeholder: "Link ou nome do arquivo" },
+    ], "Adicionar treinamento")}
+    ${renderGenericTable(
     ["Nome", "Data", "Instrutor", "Participantes", "Carga horária", "Certificado", "Status", "Presença", "Material", "Anexos"],
-    stats.trainings,
-    (item) => [item.name, formatDate(item.date), item.instructor, item.participants, item.workload, item.certificate, item.status, item.attendance, item.material, "Sem anexo"],
+    rows,
+    (item) => [item.name, formatDate(item.date), item.instructor, item.participants, item.workload, item.certificate, item.status, item.attendance, item.material, item.attachments || "Sem anexo"],
     "Nenhum treinamento mapeado"
-  );
+  )}
+  `;
 }
 
 function renderUnitMeetings(unit, stats) {
-  return renderGenericTable(
+  const manualRows = customRecords(unit, "meetings").map((record) => ({
+    date: record.date || "",
+    participants: record.participants || unit.franchisee || "Franqueado",
+    subject: record.subject || "Reunião de implantação",
+    pending: record.pending || "Sem pendência aberta",
+    owner: record.owner || unit.owner || unit.ownerName || "Consultor responsável",
+    deadline: record.deadline || "",
+    attachments: record.attachments || "Sem anexo",
+    history: record.history || record.notes || "Inserida manualmente",
+  }));
+  const rows = [...manualRows, ...stats.meetings];
+  return `
+    ${recordForm(unit, "meetings", [
+      { name: "date", label: "Data", type: "date" },
+      { name: "participants", label: "Participantes", placeholder: "Quem participou" },
+      { name: "subject", label: "Assuntos", placeholder: "Pauta principal" },
+      { name: "pending", label: "Pendências", placeholder: "Ações geradas" },
+      { name: "owner", label: "Responsáveis", placeholder: "Responsável pela ação" },
+      { name: "deadline", label: "Prazo", type: "date" },
+      { name: "attachments", label: "Anexos", placeholder: "Ata, gravação, arquivo" },
+      { name: "history", label: "Histórico", type: "textarea", placeholder: "Decisões e encaminhamentos" },
+    ], "Adicionar ata")}
+    ${renderGenericTable(
     ["Data", "Participantes", "Assuntos", "Pendências", "Responsáveis", "Prazo", "Anexos", "Histórico"],
-    stats.meetings,
-    (item) => [formatDate(item.date), item.participants, item.subject, item.pending, item.owner, formatDate(item.deadline), "Sem anexo", item.history],
+    rows,
+    (item) => [formatDate(item.date), item.participants, item.subject, item.pending, item.owner, formatDate(item.deadline), item.attachments || "Sem anexo", item.history],
     "Nenhuma ata mapeada"
-  );
+  )}
+  `;
 }
 
 function renderUnitPendencies(unit, stats) {
+  const manualRows = customRecords(unit, "pendencies").map((record) => ({
+    title: record.title || "Pendência",
+    owner: record.owner || unit.owner || unit.ownerName || "Implantação",
+    deadline: record.deadline || "",
+    priority: record.priority || "Média",
+    status: record.status || "Pendente",
+    attachment: record.attachment || "Não anexado",
+    notes: record.notes || "Inserida manualmente",
+  }));
+  const rows = [...manualRows, ...stats.pendingItems];
   return `
     <div class="pendency-filters">
-      <span>Alta prioridade: ${stats.pendingItems.filter((item) => item.priority === "Alta").length}</span>
-      <span>Média: ${stats.pendingItems.filter((item) => item.priority === "Média").length}</span>
-      <span>Baixa: ${stats.pendingItems.filter((item) => item.priority === "Baixa").length}</span>
+      <span>Alta prioridade: ${rows.filter((item) => item.priority === "Alta").length}</span>
+      <span>Média: ${rows.filter((item) => item.priority === "Média").length}</span>
+      <span>Baixa: ${rows.filter((item) => item.priority === "Baixa").length}</span>
       <span>Em atraso: ${stats.overduePending}</span>
     </div>
+    ${recordForm(unit, "pendencies", [
+      { name: "title", label: "Pendência", placeholder: "O que precisa ser resolvido" },
+      { name: "owner", label: "Responsável", placeholder: "Quem resolve" },
+      { name: "deadline", label: "Prazo", type: "date" },
+      { name: "priority", label: "Prioridade", type: "select", options: ["Alta", "Média", "Baixa"] },
+      { name: "status", label: "Status", type: "select", options: ["Pendente", "Em Andamento", "Concluído"] },
+      { name: "attachment", label: "Anexo", placeholder: "Link ou nome do arquivo" },
+      { name: "notes", label: "Observações", type: "textarea", placeholder: "Contexto, risco ou próximo passo" },
+    ], "Adicionar pendência")}
     ${renderGenericTable(
       ["Pendência", "Responsável", "Prazo", "Prioridade", "Status", "Anexo", "Observações"],
-      stats.pendingItems,
+      rows,
       (item) => [item.title, item.owner, formatDate(item.deadline), item.priority, item.status, item.attachment, item.notes],
       "Nenhuma pendência aberta"
     )}
+  `;
+}
+
+function customRecords(unit, type) {
+  return state.unitRecords[unit.id]?.[type] || [];
+}
+
+function recordForm(unit, type, fields, buttonLabel) {
+  return `
+    <form class="record-form" data-unit-record-form data-unit-id="${unit.id}" data-record-type="${type}">
+      <div class="record-form-head">
+        <div>
+          <span class="small-label">Inserção de dados</span>
+          <h3>${escapeHtml(buttonLabel.replace("Adicionar ", ""))}</h3>
+        </div>
+        <span class="badge info">salvo localmente</span>
+      </div>
+      <div class="record-form-grid">
+        ${fields.map((field) => recordField(field)).join("")}
+      </div>
+      <div class="record-form-actions">
+        <button class="primary-button" data-add-unit-record type="button">${escapeHtml(buttonLabel)}</button>
+      </div>
+    </form>
+  `;
+}
+
+function recordField(field) {
+  const common = `name="${escapeHtml(field.name)}"`;
+  const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
+  let control = `<input ${common} type="${escapeHtml(field.type || "text")}"${placeholder} />`;
+  if (field.type === "select") {
+    control = `
+      <select ${common}>
+        ${(field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+  if (field.type === "textarea") {
+    control = `<textarea ${common}${placeholder} rows="3"></textarea>`;
+  }
+  return `
+    <label class="${field.type === "textarea" ? "span-2" : ""}">
+      <span>${escapeHtml(field.label)}</span>
+      ${control}
+    </label>
   `;
 }
 
@@ -1613,10 +1807,9 @@ async function createNewDraft() {
     });
     await loadSupabaseData();
     state.selectedUnitId = result.unitId;
-    state.dashboardUnit = result.unitId;
-    state.expandedUnitId = result.unitId;
-    state.view = "dashboard";
-    activateNav("dashboard");
+    state.franchiseWorkspaceUnitId = result.unitId;
+    state.view = "franchises";
+    activateNav("franchises");
     showApp();
     return;
   }
@@ -1653,6 +1846,39 @@ async function createNewDraft() {
   state.drafts = [draft, ...state.drafts];
   writeStorage("franchiseDrafts", state.drafts);
   state.selectedUnitId = id;
+  state.franchiseWorkspaceUnitId = id;
+  state.view = "franchises";
+  activateNav("franchises");
+  render();
+}
+
+function addUnitRecord(button) {
+  const form = button.closest("[data-unit-record-form]");
+  if (!form) return;
+
+  const unitId = form.dataset.unitId;
+  const recordType = form.dataset.recordType;
+  const values = {};
+  form.querySelectorAll("input, select, textarea").forEach((field) => {
+    values[field.name] = typeof field.value === "string" ? field.value.trim() : field.value;
+  });
+
+  if (!Object.values(values).some(Boolean)) {
+    alert("Preencha ao menos um campo antes de adicionar.");
+    return;
+  }
+
+  state.unitRecords[unitId] ||= {};
+  state.unitRecords[unitId][recordType] ||= [];
+  state.unitRecords[unitId][recordType] = [
+    {
+      id: `${recordType}-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      ...values,
+    },
+    ...state.unitRecords[unitId][recordType],
+  ];
+  writeStorage("franchiseUnitRecords", state.unitRecords);
   render();
 }
 
