@@ -2044,6 +2044,83 @@ select:focus {
   translate: none;
 }
 
+.unit-focus-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 340px);
+  align-items: end;
+  gap: 14px;
+}
+
+.unit-focus-toolbar label {
+  display: grid;
+  gap: 6px;
+}
+
+.unit-focus-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 20px;
+  align-items: end;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(74, 144, 226, 0.34), transparent 28%),
+    linear-gradient(135deg, #002366, #30363f);
+  color: #fff;
+  box-shadow: 0 18px 40px rgba(0, 35, 102, 0.18);
+  margin-bottom: 16px;
+  padding: 24px;
+}
+
+.unit-focus-hero .small-label,
+.unit-focus-hero p {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.unit-focus-hero h2 {
+  color: #fff;
+  font-size: clamp(34px, 5vw, 64px);
+  line-height: 0.95;
+  margin: 8px 0 10px;
+}
+
+.unit-focus-progress {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 16px;
+}
+
+.unit-focus-progress strong {
+  color: #fff;
+  font-size: 52px;
+  line-height: 0.9;
+}
+
+.unit-focus-progress span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.unit-focus-progress .stacked-bar {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.unit-focus-kpis {
+  margin-bottom: 16px;
+}
+
+.unit-focus-workspace {
+  min-height: 68vh;
+}
+
+.unit-focus-workspace .unit-detail {
+  padding-top: 0;
+}
+
 .franchise-meta-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2824,6 +2901,8 @@ select.info {
   .two-col,
   .three-col,
   .implantation-hero-panel,
+  .unit-focus-toolbar,
+  .unit-focus-hero,
   .status-overview-grid,
   .franchise-grid,
   .dashboard-toolbar,

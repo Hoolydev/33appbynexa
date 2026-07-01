@@ -104,7 +104,15 @@ app.addEventListener("click", (event) => {
   const toggleUnit = event.target.closest("[data-toggle-unit]");
   if (toggleUnit) {
     const unitId = toggleUnit.dataset.toggleUnit;
-    state.expandedUnitId = state.expandedUnitId === unitId ? "" : unitId;
+    state.dashboardUnit = unitId;
+    state.expandedUnitId = unitId;
+    render();
+  }
+
+  const clearUnit = event.target.closest("[data-clear-dashboard-unit]");
+  if (clearUnit) {
+    state.dashboardUnit = "all";
+    state.expandedUnitId = "";
     render();
   }
 
@@ -586,6 +594,9 @@ function matchesSearch(...values) {
 
 function renderDashboard() {
   const units = roadmapUnits();
+  const focusedUnit = state.dashboardUnit === "all" ? null : units.find((unit) => unit.id === state.dashboardUnit);
+  if (focusedUnit) return renderUnitWorkspacePage(focusedUnit, units);
+
   const visibleUnits = state.dashboardUnit === "all" ? units : units.filter((unit) => unit.id === state.dashboardUnit);
   const tasks = visibleUnits.flatMap((unit) => unit.tasks);
   const purchases = visibleUnits.flatMap((unit) => unit.purchases || []);
@@ -736,6 +747,60 @@ function statusOverview(label, value, color) {
   `;
 }
 
+function renderUnitWorkspacePage(unit, units) {
+  const stats = unitStats(unit);
+  const progress = stats.progress;
+  const status = unitStatus(unit);
+  const risk = riskLevel(unit);
+  return `
+    <section class="toolbar-panel unit-focus-toolbar">
+      <button class="ghost-button" data-clear-dashboard-unit type="button">Voltar para carteira</button>
+      <label>
+        <span class="small-label">Trocar unidade</span>
+        <select data-dashboard-unit>
+          <option value="all">Todas as unidades</option>
+          ${units.map((item) => `<option value="${item.id}"${unit.id === item.id ? " selected" : ""}>${escapeHtml(item.city)} ${escapeHtml(item.state || "")}</option>`).join("")}
+        </select>
+      </label>
+    </section>
+
+    <section class="unit-focus-hero">
+      <div>
+        <span class="small-label">Pasta digital da franquia</span>
+        <h2>${escapeHtml(unit.name || `${unit.city} ${unit.state || ""}`)}</h2>
+        <p>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")} · ${escapeHtml(unit.franchisee || "Franqueado a definir")}</p>
+        <div class="badge-row">
+          ${statusBadge(status.label, status.className)}
+          <span class="${risk.className}">Risco ${risk.label}</span>
+          <span class="badge info">Código ${escapeHtml(unit.id)}</span>
+        </div>
+      </div>
+      <div class="unit-focus-progress">
+        <strong>${progress.percent}%</strong>
+        <span>implantação</span>
+        <div class="stacked-bar" aria-label="Progresso ${progress.percent}%">
+          <span class="done" style="--value:${(progress.done / Math.max(progress.total, 1)) * 100}%"></span>
+          <span class="progress" style="--value:${(progress.inProgress / Math.max(progress.total, 1)) * 100}%"></span>
+          <span class="pending" style="--value:${(progress.pending / Math.max(progress.total, 1)) * 100}%"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid kpi-grid unit-focus-kpis">
+      ${kpi("Inauguração prevista", formatDate(unit.openingDate), formatDays(unit.openingDate))}
+      ${kpi("Pendências abertas", stats.openPending, `${stats.overduePending} vencida(s)`)}
+      ${kpi("Documentação", `${stats.documentsPercent}%`, `${stats.pendingDocs} pendente(s)`)}
+      ${kpi("Credenciamento", `${stats.accreditationPercent}%`, `${stats.pendingAccreditation} pendente(s)`)}
+      ${kpi("Treinamentos", `${stats.trainingPercent}%`, `${stats.pendingTrainings} pendente(s)`)}
+      ${kpi("Alertas", stats.alerts.length, "automáticos")}
+    </div>
+
+    <section class="panel unit-focus-workspace">
+      ${unitDetail(unit)}
+    </section>
+  `;
+}
+
 function accreditationCountForUnits(units) {
   const ids = new Set(units.map((unit) => unit.id));
   return data.accreditation.procedures.reduce((total, procedure) => {
@@ -748,9 +813,8 @@ function dashboardUnitRow(unit) {
   const risk = riskLevel(unit);
   const status = unitStatus(unit);
   const stats = unitStats(unit);
-  const expanded = state.expandedUnitId === unit.id || state.dashboardUnit === unit.id;
   return `
-    <article class="unit-workspace franchise-card ${expanded ? "expanded" : ""}">
+    <article class="unit-workspace franchise-card">
       <button class="unit-workspace-head" data-toggle-unit="${unit.id}" type="button">
         <span>
           <strong>${escapeHtml(unit.name || `${unit.city} ${unit.state || ""}`)}</strong>
@@ -759,7 +823,7 @@ function dashboardUnitRow(unit) {
         <span class="unit-head-metrics">
           <strong class="unit-percent">${progress.percent}%</strong>
           ${statusBadge(status.label, status.className)}
-          <span class="chevron">${expanded ? "−" : "+"}</span>
+          <span class="chevron">+</span>
         </span>
       </button>
       <div class="franchise-meta-grid">
@@ -782,9 +846,8 @@ function dashboardUnitRow(unit) {
         <span class="badge info">${stats.alerts.length} alerta(s)</span>
       </div>
       <button class="open-folder-button" data-toggle-unit="${unit.id}" type="button">
-        ${expanded ? "Fechar pasta digital" : "Abrir pasta digital"}
+        Abrir pasta digital
       </button>
-      ${expanded ? unitDetail(unit) : ""}
     </article>
   `;
 }
