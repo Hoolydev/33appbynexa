@@ -403,17 +403,54 @@
 
       <main class="workspace">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">Nexa Gestão</p>
-            <h1 id="view-title">Dashboard</h1>
+          <div class="topbar-copy">
+            <div class="topbar-kicker">
+              <span id="topbar-date">Nexa Gestão</span>
+            </div>
+            <h1>Olá, <span id="profile-name-display">Usuário Nexa</span>.</h1>
+            <p><span id="view-title">Dashboard</span> · gestão integrada de franquias, processos e indicadores.</p>
           </div>
           <div class="top-actions">
+            <div class="quick-menu" aria-label="Ações rápidas">
+              <button class="quick-action" data-quick-view="dashboard" type="button">Dashboard</button>
+              <button class="quick-action" data-quick-view="franchises" type="button">Franquias</button>
+              <button class="quick-action" data-quick-view="new-unit" type="button">Nova unidade</button>
+            </div>
             <label class="search-box">
               <span>Buscar</span>
               <input id="global-search" type="search" placeholder="Unidade, etapa ou procedimento" />
             </label>
-            <button id="export-csv" class="ghost-button" type="button">Exportar CSV</button>
-            <button id="logout-button" class="ghost-button" type="button">Sair</button>
+            <button id="export-csv" class="ghost-button" type="button">Exportar</button>
+            <div class="profile-control">
+              <button id="profile-toggle" class="profile-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
+                <span id="profile-avatar" class="profile-avatar">NX</span>
+                <span>
+                  <strong id="profile-chip-name">Usuário Nexa</strong>
+                  <small>Perfil</small>
+                </span>
+              </button>
+              <form id="profile-menu" class="profile-menu" hidden>
+                <div class="profile-menu-head">
+                  <span id="profile-avatar-preview" class="profile-avatar large">NX</span>
+                  <div>
+                    <strong>Perfil do usuário</strong>
+                    <small>Nome e foto usados nesta sessão.</small>
+                  </div>
+                </div>
+                <label>
+                  <span>Nome</span>
+                  <input id="profile-name-input" type="text" placeholder="Seu nome" />
+                </label>
+                <label>
+                  <span>Foto</span>
+                  <input id="profile-photo-input" type="file" accept="image/*" />
+                </label>
+                <div class="profile-menu-actions">
+                  <button id="logout-button" class="ghost-button" type="button">Sair</button>
+                  <button id="profile-save" class="primary-button" type="button">Salvar perfil</button>
+                </div>
+              </form>
+            </div>
           </div>
         </header>
 

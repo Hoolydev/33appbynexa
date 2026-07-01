@@ -18,6 +18,7 @@ const state = {
   accreditationUnit: "all",
   statusOverrides: readStorage("franchiseStatusOverrides", {}),
   unitRecords: readStorage("franchiseUnitRecords", {}),
+  profile: readStorage("nexaUserProfile", { name: "Usuário Nexa", photo: "" }),
   drafts: readStorage("franchiseDrafts", []),
   auth: readStorage("appSession", null),
   loading: false,
@@ -34,6 +35,16 @@ const globalSearch = document.querySelector("#global-search");
 const exportButton = document.querySelector("#export-csv");
 const logoutButton = document.querySelector("#logout-button");
 const sourceCount = document.querySelector("#source-count");
+const topbarDate = document.querySelector("#topbar-date");
+const profileToggle = document.querySelector("#profile-toggle");
+const profileMenu = document.querySelector("#profile-menu");
+const profileNameDisplay = document.querySelector("#profile-name-display");
+const profileChipName = document.querySelector("#profile-chip-name");
+const profileAvatar = document.querySelector("#profile-avatar");
+const profileAvatarPreview = document.querySelector("#profile-avatar-preview");
+const profileNameInput = document.querySelector("#profile-name-input");
+const profilePhotoInput = document.querySelector("#profile-photo-input");
+const profileSave = document.querySelector("#profile-save");
 
 updateSourceCount();
 
@@ -72,6 +83,30 @@ globalSearch.addEventListener("input", (event) => {
 
 exportButton.addEventListener("click", exportCurrentView);
 logoutButton.addEventListener("click", logout);
+profileToggle.addEventListener("click", () => {
+  const isOpen = !profileMenu.hidden;
+  profileMenu.hidden = isOpen;
+  profileToggle.setAttribute("aria-expanded", String(!isOpen));
+});
+profileSave.addEventListener("click", saveProfile);
+profileMenu.addEventListener("submit", (event) => event.preventDefault());
+profilePhotoInput.addEventListener("change", updateProfilePhoto);
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".profile-control")) {
+    profileMenu.hidden = true;
+    profileToggle.setAttribute("aria-expanded", "false");
+  }
+});
+
+document.querySelectorAll("[data-quick-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.view = button.dataset.quickView;
+    if (state.view === "franchises") state.franchiseWorkspaceUnitId = "";
+    activateNav(state.view);
+    render();
+  });
+});
 
 app.addEventListener("change", async (event) => {
   const target = event.target;
@@ -206,6 +241,7 @@ function showApp() {
   loginScreen.hidden = true;
   appShell.hidden = false;
   updateSourceCount();
+  updateProfileUI();
   render();
 }
 
@@ -302,6 +338,7 @@ function render() {
     "new-unit": "Nova franquia",
   };
   title.textContent = titles[state.view];
+  updateTopbarState(titles[state.view]);
 
   const views = {
     dashboard: renderDashboard,
@@ -313,6 +350,75 @@ function render() {
     "new-unit": renderNewUnit,
   };
   app.innerHTML = views[state.view]();
+}
+
+function updateTopbarState(currentTitle) {
+  if (topbarDate) {
+    topbarDate.textContent = new Date().toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "short",
+    });
+  }
+  document.querySelectorAll("[data-quick-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.quickView === state.view);
+  });
+  if (title) title.textContent = currentTitle;
+  updateProfileUI();
+}
+
+function updateProfileUI() {
+  if (!profileNameDisplay || !profileChipName || !profileNameInput) return;
+  const name = currentProfileName();
+  const initials = profileInitials(name);
+  profileNameDisplay.textContent = name;
+  profileChipName.textContent = name;
+  profileNameInput.value = name;
+  [profileAvatar, profileAvatarPreview].forEach((avatar) => {
+    if (!avatar) return;
+    avatar.textContent = state.profile.photo ? "" : initials;
+    if (avatar.style) avatar.style.backgroundImage = state.profile.photo ? `url("${state.profile.photo}")` : "";
+  });
+}
+
+function currentProfileName() {
+  return state.profile.name || state.auth?.user?.name || state.auth?.name || state.auth?.email?.split("@")[0] || "Usuário Nexa";
+}
+
+function profileInitials(name) {
+  return String(name || "NX")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "NX";
+}
+
+function saveProfile() {
+  state.profile = {
+    ...state.profile,
+    name: profileNameInput.value.trim() || "Usuário Nexa",
+  };
+  writeStorage("nexaUserProfile", state.profile);
+  profileMenu.hidden = true;
+  profileToggle.setAttribute("aria-expanded", "false");
+  updateProfileUI();
+}
+
+function updateProfilePhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    state.profile = {
+      ...state.profile,
+      photo: reader.result,
+    };
+    writeStorage("nexaUserProfile", state.profile);
+    updateProfileUI();
+  });
+  reader.readAsDataURL(file);
 }
 
 function allUnits() {
