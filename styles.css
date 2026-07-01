@@ -2233,10 +2233,20 @@ textarea:focus {
   min-height: 30px;
   border: 1px solid transparent;
   border-radius: 999px;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
   font-size: 13px;
   font-weight: 800;
   padding: 0 11px;
+}
+
+.view-tab:hover,
+.view-tab:focus-visible {
+  border-color: rgba(74, 144, 226, 0.24);
+  background: #f5f9ff;
+  color: var(--brand-strong);
+  outline: none;
 }
 
 .view-tab.active {
@@ -2425,6 +2435,51 @@ textarea:focus {
 .record-form-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.pendency-table th:first-child,
+.pendency-table td:first-child {
+  width: 118px;
+}
+
+.pendency-resolved {
+  opacity: 0.68;
+}
+
+.pendency-resolved .row-title {
+  text-decoration: line-through;
+}
+
+.resolve-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid rgba(74, 144, 226, 0.18);
+  border-radius: 999px;
+  background: #f7fbff;
+  color: var(--brand-strong);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.resolve-check input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--brand);
+}
+
+.pendency-note-input {
+  min-width: 280px;
+  min-height: 58px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 9px 11px;
+  text-transform: none;
 }
 
 .franchise-meta-grid {

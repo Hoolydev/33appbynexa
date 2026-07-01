@@ -12,11 +12,13 @@ const state = {
     phase: "all",
   },
   dashboardUnit: "all",
+  dashboardTab: "overview",
   expandedUnitId: "",
   franchiseWorkspaceUnitId: "",
   unitTabs: readStorage("franchiseUnitTabs", {}),
   accreditationUnit: "all",
   statusOverrides: readStorage("franchiseStatusOverrides", {}),
+  pendencyNotes: readStorage("franchisePendencyNotes", {}),
   unitRecords: readStorage("franchiseUnitRecords", {}),
   profile: readStorage("nexaUserProfile", { name: "Usuário Nexa", photo: "" }),
   drafts: readStorage("franchiseDrafts", []),
@@ -129,9 +131,21 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-status-id]")) {
     await updateStatus(target.dataset.statusId, target.value);
   }
+  if (target.matches("[data-pendency-note]")) {
+    updatePendencyNote(target.dataset.pendencyNote, target.value);
+  }
+  if (target.matches("[data-resolve-pendency]")) {
+    await resolvePendency(target.dataset.resolvePendency, target.checked);
+  }
 });
 
 app.addEventListener("click", (event) => {
+  const dashboardTab = event.target.closest("[data-dashboard-tab]");
+  if (dashboardTab) {
+    state.dashboardTab = dashboardTab.dataset.dashboardTab;
+    render();
+  }
+
   const selectUnit = event.target.closest("[data-select-unit]");
   if (selectUnit) {
     state.franchiseWorkspaceUnitId = selectUnit.dataset.selectUnit;
@@ -740,10 +754,10 @@ function renderDashboard() {
         <strong>Todas as unidades</strong>
       </div>
       <div class="view-tabs">
-        <span class="view-tab active">Visão geral</span>
-        <span class="view-tab">Roadmap</span>
-        <span class="view-tab">Compras</span>
-        <span class="view-tab">Credenciamentos</span>
+        ${dashboardTabButton("overview", "Visão geral")}
+        ${dashboardTabButton("roadmap", "Roadmap")}
+        ${dashboardTabButton("purchases", "Compras")}
+        ${dashboardTabButton("accreditation", "Credenciamentos")}
       </div>
     </section>
 
@@ -771,6 +785,138 @@ function renderDashboard() {
       ${kpi("Tempo médio de implantação", averageDaysLabel(visibleUnits), "prazo até inauguração")}
     </div>
 
+    ${renderDashboardTabContent(state.dashboardTab, visibleUnits, {
+      done,
+      inProgress,
+      pending,
+      blockers,
+      purchases,
+      closedCred,
+      totalProcedures: visibleUnits.length * data.accreditation.procedures.length,
+    })}
+  `;
+}
+
+function dashboardTabButton(key, label) {
+  return `<button class="view-tab ${state.dashboardTab === key ? "active" : ""}" data-dashboard-tab="${key}" type="button">${escapeHtml(label)}</button>`;
+}
+
+function renderDashboardTabContent(tab, visibleUnits, context) {
+  if (tab === "roadmap") {
+    return `
+      <div class="grid two-col" style="margin-top:16px">
+        <section class="panel">
+          <h2>Roadmap por unidade</h2>
+          ${pendingByUnitChart(visibleUnits)}
+        </section>
+        <section class="panel">
+          <h2>Status geral do roadmap</h2>
+          ${statusDistributionChart(context.done, context.inProgress, context.pending)}
+        </section>
+      </div>
+      <section class="panel" style="margin-top:16px">
+        <h2>Etapas abertas do roadmap</h2>
+        <div class="blocker-list">
+          ${context.blockers
+            .filter(({ unit, task }) => matchesSearch(unit.name, task.process, task.phase))
+            .slice(0, 18)
+            .map(({ unit, task }) => `
+              <div class="unit-card">
+                <header>
+                  <div>
+                    <strong>${escapeHtml(task.process)}</strong>
+                    <div class="meta">${escapeHtml(unit.city)} · ${escapeHtml(task.phase)}</div>
+                  </div>
+                  ${statusBadge(getStatus(task))}
+                </header>
+              </div>
+            `)
+            .join("") || empty("Nenhuma etapa aberta encontrada")}
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab === "purchases") {
+    const purchaseRows = visibleUnits.flatMap((unit) => (unit.purchases || []).map((item) => ({ unit, item })));
+    const done = purchaseRows.filter(({ item }) => getStatus(item) === "Concluído").length;
+    const inProgress = purchaseRows.filter(({ item }) => getStatus(item) === "Em Andamento").length;
+    const pending = purchaseRows.filter(({ item }) => getStatus(item) === "Pendente").length;
+    return `
+      <div class="grid two-col" style="margin-top:16px">
+        <section class="panel">
+          <h2>Status das compras</h2>
+          ${statusDistributionChart(done, inProgress, pending)}
+        </section>
+        <section class="panel">
+          <h2>Compras pendentes</h2>
+          <div class="blocker-list">
+            ${purchaseRows
+              .filter(({ unit, item }) => getStatus(item) !== "Concluído" && matchesSearch(unit.name, item.item, item.notes))
+              .slice(0, 14)
+              .map(({ unit, item }) => `
+                <div class="unit-card">
+                  <header>
+                    <div>
+                      <strong>${escapeHtml(item.item)}</strong>
+                      <div class="meta">${escapeHtml(unit.city)} · ${escapeHtml(item.notes || "Sem observação")}</div>
+                    </div>
+                    ${statusBadge(getStatus(item))}
+                  </header>
+                </div>
+              `)
+              .join("") || empty("Nenhuma compra pendente")}
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  if (tab === "accreditation") {
+    const rows = visibleUnits.map((unit) => {
+      const acc = accreditationForUnit(unit);
+      const summary = accreditationSummary(acc);
+      return { unit, total: acc.length, ...summary };
+    });
+    return `
+      <div class="grid two-col" style="margin-top:16px">
+        <section class="panel">
+          <h2>Credenciamentos por unidade</h2>
+          <div class="blocker-list">
+            ${rows
+              .filter(({ unit }) => matchesSearch(unit.name, unit.city, unit.franchisee))
+              .map(({ unit, total, closed, pending, review, rejected }) => `
+                <div class="unit-card">
+                  <header>
+                    <div>
+                      <strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong>
+                      <div class="meta">${closed}/${total} concluídos · ${pending} pendente(s) · ${review} em análise · ${rejected} reprovado(s)</div>
+                    </div>
+                    <button class="link-button" data-select-unit="${unit.id}" type="button">Abrir</button>
+                  </header>
+                </div>
+              `)
+              .join("") || empty("Nenhum credenciamento encontrado")}
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Resumo de credenciamentos</h2>
+          <div class="status-split">
+            <div class="stacked-bar tall">
+              <span class="done" style="--value:${percentOf(context.closedCred, Math.max(context.totalProcedures, 1))}%"></span>
+              <span class="pending" style="--value:${percentOf(Math.max(context.totalProcedures - context.closedCred, 0), Math.max(context.totalProcedures, 1))}%"></span>
+            </div>
+            <div class="badge-row">
+              ${statusBadge(`${context.closedCred} concluídos`, "done")}
+              ${statusBadge(`${Math.max(context.totalProcedures - context.closedCred, 0)} em aberto`, "pending")}
+            </div>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  return `
     <div class="grid two-col" style="margin-top:16px">
       <section class="panel">
         <h2>Pendências por unidade</h2>
@@ -778,7 +924,7 @@ function renderDashboard() {
       </section>
       <section class="panel">
         <h2>Status geral do roadmap</h2>
-        ${statusDistributionChart(done, inProgress, pending)}
+        ${statusDistributionChart(context.done, context.inProgress, context.pending)}
       </section>
     </div>
 
@@ -786,7 +932,7 @@ function renderDashboard() {
       <section class="panel">
         <h2>Próximas pendências</h2>
         <div class="blocker-list">
-          ${blockers
+          ${context.blockers
             .filter(({ unit, task }) => matchesSearch(unit.name, task.process, task.phase))
             .slice(0, 12)
             .map(({ unit, task }) => `
@@ -1307,6 +1453,8 @@ function renderUnitMeetings(unit, stats) {
 
 function renderUnitPendencies(unit, stats) {
   const manualRows = customRecords(unit, "pendencies").map((record) => ({
+    id: record.id,
+    manual: true,
     title: record.title || "Pendência",
     owner: record.owner || unit.owner || unit.ownerName || "Implantação",
     deadline: record.deadline || "",
@@ -1332,13 +1480,82 @@ function renderUnitPendencies(unit, stats) {
       { name: "attachment", label: "Anexo", placeholder: "Link ou nome do arquivo" },
       { name: "notes", label: "Observações", type: "textarea", placeholder: "Contexto, risco ou próximo passo" },
     ], "Adicionar pendência")}
-    ${renderGenericTable(
-      ["Pendência", "Responsável", "Prazo", "Prioridade", "Status", "Anexo", "Observações"],
-      rows,
-      (item) => [item.title, item.owner, formatDate(item.deadline), item.priority, item.status, item.attachment, item.notes],
-      "Nenhuma pendência aberta"
-    )}
+    <div class="table-wrap">
+      <table class="workspace-table compact-table pendency-table">
+        <thead>
+          <tr>
+            <th>Resolver</th>
+            <th>Pendência</th>
+            <th>Responsável</th>
+            <th>Prazo</th>
+            <th>Prioridade</th>
+            <th>Status</th>
+            <th>Anexo</th>
+            <th>Observações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((item) => {
+            const resolved = getStatus(item) === "Concluído";
+            return `
+              <tr class="${resolved ? "pendency-resolved" : ""}">
+                <td>
+                  <label class="resolve-check" title="${resolved ? "Reabrir pendência" : "Resolver pendência"}">
+                    <input data-resolve-pendency="${item.id}" type="checkbox"${resolved ? " checked" : ""} />
+                    <span>${resolved ? "Resolvida" : "Resolver"}</span>
+                  </label>
+                </td>
+                <td><span class="row-title">${escapeHtml(item.title)}</span></td>
+                <td>${escapeHtml(item.owner)}</td>
+                <td>${escapeHtml(formatDate(item.deadline))}</td>
+                <td>${escapeHtml(item.priority)}</td>
+                <td>${statusBadge(getStatus(item))}</td>
+                <td>${escapeHtml(item.attachment)}</td>
+                <td>
+                  <textarea class="pendency-note-input" data-pendency-note="${item.id}" rows="2" placeholder="Adicionar observação">${escapeHtml(getPendencyNotes(item))}</textarea>
+                </td>
+              </tr>
+            `;
+          }).join("") || `<tr><td colspan="8">${empty("Nenhuma pendência aberta")}</td></tr>`}
+        </tbody>
+      </table>
+    </div>
   `;
+}
+
+function getPendencyNotes(item) {
+  if (Object.prototype.hasOwnProperty.call(state.pendencyNotes, item.id)) return state.pendencyNotes[item.id];
+  return item.notes || "";
+}
+
+function updatePendencyNote(itemId, value) {
+  if (updateManualRecord(itemId, { notes: value })) return;
+  state.pendencyNotes[itemId] = value;
+  writeStorage("franchisePendencyNotes", state.pendencyNotes);
+}
+
+async function resolvePendency(itemId, resolved) {
+  const status = resolved ? "Concluído" : "Pendente";
+  if (updateManualRecord(itemId, { status })) {
+    render();
+    return;
+  }
+  await updateStatus(itemId, status);
+}
+
+function updateManualRecord(recordId, patch) {
+  let updated = false;
+  for (const unitRecords of Object.values(state.unitRecords)) {
+    for (const records of Object.values(unitRecords || {})) {
+      const record = records.find((item) => item.id === recordId);
+      if (record) {
+        Object.assign(record, patch);
+        updated = true;
+      }
+    }
+  }
+  if (updated) writeStorage("franchiseUnitRecords", state.unitRecords);
+  return updated;
 }
 
 function customRecords(unit, type) {
