@@ -132,12 +132,6 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-status-id]")) {
     await updateStatus(target.dataset.statusId, target.value);
   }
-  if (target.matches("[data-pendency-note]")) {
-    updatePendencyNote(target.dataset.pendencyNote, target.value);
-  }
-  if (target.matches("[data-resolve-pendency]")) {
-    await resolvePendency(target.dataset.resolvePendency, target.checked);
-  }
 });
 
 app.addEventListener("click", (event) => {
@@ -186,6 +180,11 @@ app.addEventListener("click", (event) => {
   const addRecord = event.target.closest("[data-add-unit-record]");
   if (addRecord) {
     addUnitRecord(addRecord);
+  }
+
+  const savePendencies = event.target.closest("[data-save-pendencies]");
+  if (savePendencies) {
+    savePendencyChanges(savePendencies);
   }
 
   const removeDraft = event.target.closest("[data-remove-draft]");
@@ -1485,7 +1484,6 @@ function renderUnitPendencies(unit, stats) {
       <table class="workspace-table compact-table pendency-table">
         <thead>
           <tr>
-            <th>Resolver</th>
             <th>Pendência</th>
             <th>Responsável</th>
             <th>Prazo</th>
@@ -1500,27 +1498,36 @@ function renderUnitPendencies(unit, stats) {
             const resolved = getStatus(item) === "Concluído";
             return `
               <tr class="${resolved ? "pendency-resolved" : ""}">
-                <td>
-                  <label class="resolve-check" title="${resolved ? "Reabrir pendência" : "Resolver pendência"}">
-                    <input data-resolve-pendency="${item.id}" type="checkbox"${resolved ? " checked" : ""} />
-                    <span>${resolved ? "Resolvida" : "Resolver"}</span>
-                  </label>
-                </td>
                 <td><span class="row-title">${escapeHtml(item.title)}</span></td>
                 <td>${escapeHtml(item.owner)}</td>
                 <td>${escapeHtml(formatDate(item.deadline))}</td>
                 <td>${escapeHtml(item.priority)}</td>
-                <td>${statusBadge(getStatus(item))}</td>
+                <td>${pendencyStatusSelect(item)}</td>
                 <td>${escapeHtml(item.attachment)}</td>
                 <td>
                   <textarea class="pendency-note-input" data-pendency-note="${item.id}" rows="2" placeholder="Adicionar observação">${escapeHtml(getPendencyNotes(item))}</textarea>
                 </td>
               </tr>
             `;
-          }).join("") || `<tr><td colspan="8">${empty("Nenhuma pendência aberta")}</td></tr>`}
+          }).join("") || `<tr><td colspan="7">${empty("Nenhuma pendência aberta")}</td></tr>`}
         </tbody>
       </table>
     </div>
+    <div class="pendency-save-bar">
+      <span>As alterações de status e observações só entram no sistema ao salvar.</span>
+      <button class="primary-button" data-save-pendencies type="button">Salvar pendências</button>
+    </div>
+  `;
+}
+
+function pendencyStatusSelect(item) {
+  const current = getStatus(item);
+  const options = ["Pendente", "Em Andamento", "Concluído"];
+  if (current && !options.includes(current)) options.push(current);
+  return `
+    <select class="${statusClass(current)} pendency-status-select" data-pendency-status="${item.id}" aria-label="Status de ${escapeHtml(item.title)}">
+      ${options.map((status) => `<option value="${escapeHtml(status)}"${current === status ? " selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+    </select>
   `;
 }
 
@@ -1529,19 +1536,46 @@ function getPendencyNotes(item) {
   return item.notes || "";
 }
 
-function updatePendencyNote(itemId, value) {
-  if (updateManualRecord(itemId, { notes: value })) return;
-  state.pendencyNotes[itemId] = value;
-  writeStorage("franchisePendencyNotes", state.pendencyNotes);
-}
+async function savePendencyChanges(button) {
+  const scope = button.closest(".unit-tab-panel") || app;
+  const notes = {};
+  scope.querySelectorAll("[data-pendency-note]").forEach((field) => {
+    notes[field.dataset.pendencyNote] = field.value;
+  });
+  const updates = [...scope.querySelectorAll("[data-pendency-status]")].map((field) => ({
+    id: field.dataset.pendencyStatus,
+    status: field.value,
+    notes: notes[field.dataset.pendencyStatus] || "",
+  }));
 
-async function resolvePendency(itemId, resolved) {
-  const status = resolved ? "Concluído" : "Pendente";
-  if (updateManualRecord(itemId, { status })) {
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Salvando...";
+
+  try {
+    for (const item of updates) {
+      if (updateManualRecord(item.id, { status: item.status, notes: item.notes })) continue;
+
+      state.pendencyNotes[item.id] = item.notes;
+      if (supabaseEnabled && state.auth?.token) {
+        const functionName = isPurchaseId(item.id) ? "update_purchase_status" : "update_task_status";
+        const payload = isPurchaseId(item.id)
+          ? { p_token: state.auth.token, p_purchase_id: item.id, p_status: item.status }
+          : { p_token: state.auth.token, p_task_id: item.id, p_status: item.status };
+        await supabaseRpc(functionName, payload);
+        setLocalItemStatus(item.id, item.status);
+      } else {
+        state.statusOverrides[item.id] = item.status;
+      }
+    }
+    writeStorage("franchisePendencyNotes", state.pendencyNotes);
+    writeStorage("franchiseStatusOverrides", state.statusOverrides);
     render();
-    return;
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível salvar as pendências.");
   }
-  await updateStatus(itemId, status);
 }
 
 function updateManualRecord(recordId, patch) {
