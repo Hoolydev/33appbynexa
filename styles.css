@@ -1549,6 +1549,8 @@ textarea {
 }
 
 .sidebar-profile {
+  display: grid;
+  gap: 10px;
   margin-top: auto;
 }
 
@@ -1834,6 +1836,24 @@ h3 {
 .profile-menu-actions .ghost-button,
 .profile-menu-actions .primary-button {
   flex: 1;
+}
+
+.sidebar-logout {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(224, 56, 63, 0.16);
+  border-radius: 999px;
+  background: #fff;
+  color: #9a3427;
+  cursor: pointer;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(0, 35, 102, 0.04);
+}
+
+.sidebar-logout:hover,
+.sidebar-logout:focus-visible {
+  background: var(--soft-red);
+  outline: none;
 }
 
 .search-box {
