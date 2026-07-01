@@ -43,6 +43,7 @@ const profileMenu = document.querySelector("#profile-menu");
 const profileNameDisplay = document.querySelector("#profile-name-display");
 const profileChipName = document.querySelector("#profile-chip-name");
 const profileAvatar = document.querySelector("#profile-avatar");
+const topbarAvatar = document.querySelector("#topbar-avatar");
 const profileAvatarPreview = document.querySelector("#profile-avatar-preview");
 const profileNameInput = document.querySelector("#profile-name-input");
 const profilePhotoInput = document.querySelector("#profile-photo-input");
@@ -338,7 +339,7 @@ async function supabaseRpc(functionName, body) {
 }
 
 function updateSourceCount() {
-  sourceCount.textContent = supabaseEnabled ? "Supabase" : `${data.sourceFiles.length} planilhas`;
+  if (sourceCount) sourceCount.textContent = supabaseEnabled ? "Supabase" : `${data.sourceFiles.length} planilhas`;
 }
 
 function render() {
@@ -388,7 +389,7 @@ function updateProfileUI() {
   profileNameDisplay.textContent = name;
   profileChipName.textContent = name;
   profileNameInput.value = name;
-  [profileAvatar, profileAvatarPreview].forEach((avatar) => {
+  [profileAvatar, profileAvatarPreview, topbarAvatar].forEach((avatar) => {
     if (!avatar) return;
     avatar.textContent = state.profile.photo ? "" : initials;
     if (avatar.style) avatar.style.backgroundImage = state.profile.photo ? `url("${state.profile.photo}")` : "";
