@@ -1469,12 +1469,9 @@ select {
   height: auto;
 }
 
-.landing-nav .brand-lockup {
-  width: 172px;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
-  padding: 7px 10px;
+.landing-brand-lockup {
+  width: 188px;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.22));
 }
 
 .app-brand-lockup {
@@ -1490,13 +1487,6 @@ select {
   height: 38px;
   flex: 0 0 38px;
   object-fit: contain;
-}
-
-.landing-nav .brand-mark {
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
-  padding: 5px;
 }
 
 .brand strong,
