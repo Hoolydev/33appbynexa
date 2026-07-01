@@ -13,6 +13,7 @@ const state = {
   },
   dashboardUnit: "all",
   expandedUnitId: "",
+  unitTabs: readStorage("franchiseUnitTabs", {}),
   accreditationUnit: "all",
   statusOverrides: readStorage("franchiseStatusOverrides", {}),
   drafts: readStorage("franchiseDrafts", []),
@@ -110,6 +111,13 @@ app.addEventListener("click", (event) => {
   const createDraft = event.target.closest("[data-create-draft]");
   if (createDraft) {
     createNewDraft();
+  }
+
+  const unitTab = event.target.closest("[data-unit-tab]");
+  if (unitTab) {
+    state.unitTabs[unitTab.dataset.unitId] = unitTab.dataset.unitTab;
+    writeStorage("franchiseUnitTabs", state.unitTabs);
+    render();
   }
 
   const removeDraft = event.target.closest("[data-remove-draft]");
@@ -309,6 +317,200 @@ function unitProgress(unit) {
   };
 }
 
+function unitStats(unit) {
+  const progress = unitProgress(unit);
+  const docs = documentItems(unit);
+  const trainings = trainingItems(unit);
+  const meetings = meetingItems(unit);
+  const accreditation = accreditationForUnit(unit);
+  const pendingItems = pendingItemsForUnit(unit);
+  const overduePending = pendingItems.filter((item) => item.overdue).length;
+  const approvedDocs = docs.filter((item) => item.status === "Aprovado").length;
+  const completedTrainings = trainings.filter((item) => item.status === "Concluído").length;
+  const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
+  return {
+    progress,
+    documents: docs,
+    trainings,
+    meetings,
+    accreditation,
+    pendingItems,
+    alerts: alertsForUnit(unit, pendingItems, docs, trainings, accreditation),
+    documentsPercent: percentOf(approvedDocs, docs.length),
+    accreditationPercent: percentOf(closedAccreditation, accreditation.length),
+    trainingPercent: percentOf(completedTrainings, trainings.length),
+    approvedDocs,
+    pendingDocs: docs.filter((item) => item.status !== "Aprovado").length,
+    completedTrainings,
+    pendingTrainings: trainings.filter((item) => item.status !== "Concluído").length,
+    closedAccreditation,
+    pendingAccreditation: accreditation.filter((item) => !isAccreditationClosed(item.status)).length,
+    openPending: pendingItems.length,
+    overduePending,
+  };
+}
+
+function percentOf(done, total) {
+  return Math.round((done / Math.max(total, 1)) * 100);
+}
+
+function unitStatus(unit) {
+  const stats = unitStats(unit);
+  const days = daysTo(unit.openingDate);
+  if (stats.progress.percent >= 95 && stats.pendingAccreditation === 0 && stats.openPending <= 2) {
+    return { label: "Pronta para inauguração", className: "done", dot: "green" };
+  }
+  if (days !== null && days < 0) {
+    return { label: stats.overduePending >= 5 ? "Implantação crítica" : "Em atraso", className: "critical", dot: "red" };
+  }
+  if (stats.pendingDocs > 0) {
+    return { label: "Aguardando documentação", className: "pending", dot: "yellow" };
+  }
+  return { label: "Em implantação", className: "progress", dot: "blue" };
+}
+
+function canonicalCategory(text) {
+  const value = normalizeText(text);
+  if (value.includes("contrato")) return "Contratos";
+  if (value.includes("aditivo")) return "Aditivos";
+  if (value.includes("cnpj") || value.includes("societ")) return "Documentos societários";
+  if (value.includes("bombeiro")) return "Bombeiros";
+  if (value.includes("alvara")) return "Alvarás";
+  if (value.includes("vigilancia") || value.includes("sanitaria")) return "Vigilância Sanitária";
+  if (value.includes("marketing")) return "Marketing";
+  if (value.includes("arquitet")) return "Projeto arquitetônico";
+  if (value.includes("trein")) return "Treinamentos";
+  if (value.includes("reuniao") || value.includes("ata")) return "Atas de reuniões";
+  if (value.includes("credenc")) return "Credenciamentos";
+  if (value.includes("finance") || value.includes("pagamento")) return "Financeiro";
+  if (value.includes("foto")) return "Fotos da implantação";
+  if (value.includes("manual")) return "Manual da franquia";
+  if (value.includes("licenca") || value.includes("licenca")) return "Licenças";
+  return "Documentos da empresa";
+}
+
+function documentItems(unit) {
+  return (unit.tasks || [])
+    .filter((task) => /document|contrato|cnpj|licen|alvar|bombeir|vigil|manual|arquitet|ata|relat|credenc|finance|foto|marketing|trein/i.test(normalizeText(task.process)))
+    .map((task, index) => ({
+      id: `doc-${task.id}`,
+      name: task.process,
+      category: canonicalCategory(task.process),
+      version: `v${Math.max(1, Math.floor(index / 5) + 1)}`,
+      date: task.actualDate || task.deadline || unit.openingDate,
+      owner: unit.owner || unit.ownerName || "Implantação",
+      status: getStatus(task) === "Concluído" ? "Aprovado" : getStatus(task) === "Em Andamento" ? "Em análise" : "Pendente",
+      signature: /contrato|aditivo|document/i.test(normalizeText(task.process)) ? "Aplicável" : "Não aplicável",
+      history: task.notes || "Sem histórico registrado",
+    }));
+}
+
+function trainingItems(unit) {
+  return (unit.tasks || [])
+    .filter((task) => normalizeText(task.process).includes("trein"))
+    .map((task) => ({
+      id: `training-${task.id}`,
+      name: task.process,
+      date: task.actualDate || task.deadline || "",
+      instructor: "Equipe Nexa",
+      participants: unit.franchisee || "Franqueado e equipe",
+      workload: "A definir",
+      certificate: getStatus(task) === "Concluído" ? "Liberado" : "Pendente",
+      status: getStatus(task),
+      attendance: getStatus(task) === "Concluído" ? "Registrada" : "Pendente",
+      material: /manual/i.test(normalizeText(task.process)) ? "Manual da franquia" : "Material operacional",
+      notes: task.notes || "",
+    }));
+}
+
+function meetingItems(unit) {
+  return (unit.tasks || [])
+    .filter((task) => /reuniao|apresentacao|boas vindas|kickoff|alinhamento/i.test(normalizeText(task.process)))
+    .slice(0, 16)
+    .map((task) => ({
+      id: `meeting-${task.id}`,
+      date: task.actualDate || task.deadline || "",
+      participants: unit.franchisee || "Franqueado",
+      subject: task.process,
+      pending: getStatus(task) === "Concluído" ? "Sem pendência aberta" : task.process,
+      owner: unit.owner || unit.ownerName || "Consultor responsável",
+      deadline: task.deadline || unit.openingDate,
+      history: task.notes || "Sem observações",
+    }));
+}
+
+function pendingItemsForUnit(unit) {
+  const taskPendencies = (unit.tasks || [])
+    .filter((task) => getStatus(task) !== "Concluído")
+    .map((task) => ({
+      id: task.id,
+      title: task.process,
+      area: task.phase,
+      owner: unit.owner || unit.ownerName || "Implantação",
+      deadline: task.deadline || "",
+      priority: pendingPriority(task, unit),
+      status: getStatus(task),
+      attachment: "Não anexado",
+      notes: task.notes || "",
+      overdue: isOverdue(task.deadline),
+    }));
+  const purchasePendencies = (unit.purchases || [])
+    .filter((item) => getStatus(item) !== "Concluído")
+    .map((item) => ({
+      id: item.id,
+      title: item.item,
+      area: "Compras",
+      owner: "Operação",
+      deadline: "",
+      priority: "Média",
+      status: getStatus(item),
+      attachment: "Não anexado",
+      notes: item.notes || "",
+      overdue: false,
+    }));
+  return [...taskPendencies, ...purchasePendencies];
+}
+
+function pendingPriority(item, unit) {
+  const days = daysTo(item.deadline || unit.openingDate);
+  if (days !== null && days <= 7) return "Alta";
+  if (/contrato|licen|alvar|vigil|bombeir|credenc/i.test(normalizeText(item.process || item.item))) return "Alta";
+  if (days !== null && days <= 20) return "Média";
+  return "Baixa";
+}
+
+function isOverdue(value) {
+  const days = daysTo(value);
+  return days !== null && days < 0;
+}
+
+function alertsForUnit(unit, pendingItems, docs, trainings, accreditation) {
+  const alerts = [];
+  const days = daysTo(unit.openingDate);
+  if (days !== null && days < 0) alerts.push({ type: "Crítico", message: `Implantação atrasada há ${Math.abs(days)} dias.` });
+  if (days !== null && days <= 15 && days >= 0) alerts.push({ type: "Prazo", message: `Inauguração prevista em ${days} dias.` });
+  const high = pendingItems.filter((item) => item.priority === "Alta").length;
+  if (high) alerts.push({ type: "Pendência crítica", message: `${high} pendência(s) de alta prioridade exigem ação.` });
+  const pendingDocs = docs.filter((item) => item.status !== "Aprovado").length;
+  if (pendingDocs) alerts.push({ type: "Documento", message: `${pendingDocs} documento(s) pendente(s) ou em análise.` });
+  const pendingTrainings = trainings.filter((item) => item.status !== "Concluído").length;
+  if (pendingTrainings) alerts.push({ type: "Treinamento", message: `${pendingTrainings} treinamento(s) ainda não concluído(s).` });
+  const pendingCred = accreditation.filter((item) => !isAccreditationClosed(item.status)).length;
+  if (pendingCred) alerts.push({ type: "Credenciamento", message: `${pendingCred} credenciamento(s) sem conclusão.` });
+  return alerts.slice(0, 8);
+}
+
+function isAccreditationClosed(status) {
+  return ["FECHADO", "CONCLUÍDO", "CONCLUIDO", "APROVADO"].includes(normalizeText(status).toUpperCase());
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function getStatus(item) {
   return state.statusOverrides[item.id] || item.status || "Sem status";
 }
@@ -360,6 +562,13 @@ function formatDays(dateValue) {
   return `${Math.abs(days)} dias em atraso`;
 }
 
+function averageDaysLabel(units) {
+  const values = units.map((unit) => daysTo(unit.openingDate)).filter((value) => value !== null);
+  if (!values.length) return "sem data";
+  const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  return avg >= 0 ? `${avg} dias` : `${Math.abs(avg)} dias atraso`;
+}
+
 function riskLevel(unit) {
   const progress = unitProgress(unit);
   const days = daysTo(unit.openingDate);
@@ -385,6 +594,11 @@ function renderDashboard() {
   const pending = tasks.filter((task) => getStatus(task) === "Pendente").length;
   const avg = Math.round(visibleUnits.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(visibleUnits.length, 1));
   const closedCred = accreditationCountForUnits(visibleUnits);
+  const criticalUnits = visibleUnits.filter((unit) => ["Implantação crítica", "Em atraso"].includes(unitStatus(unit).label)).length;
+  const totalDocuments = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).documents.length, 0);
+  const pendingDocuments = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).pendingDocs, 0);
+  const openPendencies = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).openPending, 0);
+  const statusCounts = unitStatusCounts(visibleUnits);
   const blockers = visibleUnits.flatMap((unit) =>
     unit.tasks
       .filter((task) => getStatus(task) !== "Concluído")
@@ -409,36 +623,58 @@ function renderDashboard() {
       </div>
     </section>
 
+    <section class="implantation-hero-panel">
+      <div>
+        <span class="small-label">Central de implantação</span>
+        <h2>Gestão completa das franquias em implantação</h2>
+        <p>Visão executiva, pasta digital por unidade, cronograma, documentos, treinamentos, credenciamentos, alertas e pendências em um único painel operacional.</p>
+      </div>
+      <div class="status-overview-grid">
+        ${statusOverview("Em implantação", statusCounts["Em implantação"] || 0, "blue")}
+        ${statusOverview("Aguardando documentação", statusCounts["Aguardando documentação"] || 0, "yellow")}
+        ${statusOverview("Em atraso", statusCounts["Em atraso"] || 0, "orange")}
+        ${statusOverview("Pronta para inauguração", statusCounts["Pronta para inauguração"] || 0, "green")}
+        ${statusOverview("Implantação crítica", statusCounts["Implantação crítica"] || 0, "red")}
+      </div>
+    </section>
+
     <div class="grid kpi-grid">
-      ${kpi("Unidades em implantação", visibleUnits.length, `${state.drafts.length} plano(s) novo(s)`)}
+      ${kpi("Total de franquias", visibleUnits.length, `${criticalUnits} em risco ou atraso`)}
       ${kpi("Progresso médio", `${avg}%`, `${done} de ${tasks.length} etapas concluídas`)}
-      ${kpi("Etapas pendentes", pending, `${inProgress} em andamento`)}
-      ${kpi("Credenciamentos mapeados", closedCred, `${data.accreditation.procedures.length} procedimentos com status`)}
+      ${kpi("Pendências abertas", openPendencies, `${pending} etapas pendentes`)}
+      ${kpi("Documentos pendentes", pendingDocuments, `${totalDocuments} documentos mapeados`)}
+      ${kpi("Credenciamentos concluídos", closedCred, `${data.accreditation.procedures.length} procedimentos base`)}
+      ${kpi("Tempo médio de implantação", averageDaysLabel(visibleUnits), "prazo até inauguração")}
     </div>
 
-    <div class="grid two-col" style="margin-top:16px">
-      <section class="panel">
-        <h2>Roadmap por unidade</h2>
-        <div class="unit-accordion">
+    <section class="panel implantation-board">
+      <div class="panel-heading-row">
+        <div>
+          <span class="small-label">Pasta digital por franquia</span>
+          <h2>Franquias cadastradas</h2>
+        </div>
+        <span class="badge info">${visibleUnits.length} unidade(s)</span>
+      </div>
+      <div class="franchise-grid">
           ${visibleUnits
             .filter((unit) => matchesSearch(unit.name, unit.franchisee, unit.city))
             .map((unit) => dashboardUnitRow(unit))
             .join("") || empty("Nenhuma unidade encontrada")}
-        </div>
-      </section>
+      </div>
+    </section>
 
+    <div class="grid two-col" style="margin-top:16px">
       <section class="panel">
         <h2>Pendências por unidade</h2>
         ${pendingByUnitChart(visibleUnits)}
       </section>
-    </div>
-
-    <div class="grid two-col" style="margin-top:16px">
       <section class="panel">
         <h2>Status geral do roadmap</h2>
         ${statusDistributionChart(done, inProgress, pending)}
       </section>
+    </div>
 
+    <div class="grid two-col" style="margin-top:16px">
       <section class="panel">
         <h2>Próximas pendências</h2>
         <div class="blocker-list">
@@ -459,7 +695,44 @@ function renderDashboard() {
             .join("") || empty("Nenhum bloqueio encontrado")}
         </div>
       </section>
+      <section class="panel">
+        <h2>Mapa de alertas</h2>
+        <div class="blocker-list">
+          ${visibleUnits
+            .flatMap((unit) => unitStats(unit).alerts.slice(0, 2).map((alert) => ({ unit, alert })))
+            .slice(0, 10)
+            .map(({ unit, alert }) => `
+              <div class="unit-card">
+                <header>
+                  <div>
+                    <strong>${escapeHtml(alert.type)}</strong>
+                    <div class="meta">${escapeHtml(unit.city)} · ${escapeHtml(alert.message)}</div>
+                  </div>
+                  <button class="link-button" data-select-unit="${unit.id}" type="button">Abrir</button>
+                </header>
+              </div>
+            `)
+            .join("") || empty("Nenhum alerta automático")}
+        </div>
+      </section>
     </div>
+  `;
+}
+
+function unitStatusCounts(units) {
+  return units.reduce((acc, unit) => {
+    const label = unitStatus(unit).label;
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function statusOverview(label, value, color) {
+  return `
+    <article class="status-overview ${color}">
+      <strong>${escapeHtml(String(value))}</strong>
+      <span>${escapeHtml(label)}</span>
+    </article>
   `;
 }
 
@@ -473,20 +746,28 @@ function accreditationCountForUnits(units) {
 function dashboardUnitRow(unit) {
   const progress = unitProgress(unit);
   const risk = riskLevel(unit);
+  const status = unitStatus(unit);
+  const stats = unitStats(unit);
   const expanded = state.expandedUnitId === unit.id || state.dashboardUnit === unit.id;
   return `
-    <article class="unit-workspace ${expanded ? "expanded" : ""}">
+    <article class="unit-workspace franchise-card ${expanded ? "expanded" : ""}">
       <button class="unit-workspace-head" data-toggle-unit="${unit.id}" type="button">
         <span>
-          <strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong>
-          <small>${escapeHtml(unit.franchisee || "Franqueado a definir")}</small>
+          <strong>${escapeHtml(unit.name || `${unit.city} ${unit.state || ""}`)}</strong>
+          <small>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")} · ${escapeHtml(unit.franchisee || "Franqueado a definir")}</small>
         </span>
         <span class="unit-head-metrics">
-          ${statusBadge(`${progress.percent}%`, "done")}
-          <span class="${risk.className}">${risk.label}</span>
+          <strong class="unit-percent">${progress.percent}%</strong>
+          ${statusBadge(status.label, status.className)}
           <span class="chevron">${expanded ? "−" : "+"}</span>
         </span>
       </button>
+      <div class="franchise-meta-grid">
+        <span><small>Responsável interno</small><strong>${escapeHtml(unit.owner || unit.ownerName || "Implantação")}</strong></span>
+        <span><small>Assinatura do contrato</small><strong>${formatDate(contractDate(unit))}</strong></span>
+        <span><small>Inauguração prevista</small><strong>${formatDate(unit.openingDate)}</strong></span>
+        <span><small>Status da unidade</small><strong>${escapeHtml(status.label)}</strong></span>
+      </div>
       <div class="stacked-bar" aria-label="Progresso ${progress.percent}%">
         <span class="done" style="--value:${(progress.done / Math.max(progress.total, 1)) * 100}%"></span>
         <span class="progress" style="--value:${(progress.inProgress / Math.max(progress.total, 1)) * 100}%"></span>
@@ -497,88 +778,312 @@ function dashboardUnitRow(unit) {
         ${statusBadge(`${progress.inProgress} em andamento`, "progress")}
         ${statusBadge(`${progress.pending} pendentes`, "pending")}
         <span class="badge info">${formatDays(unit.openingDate)}</span>
+        <span class="${risk.className}">Risco ${risk.label}</span>
+        <span class="badge info">${stats.alerts.length} alerta(s)</span>
       </div>
+      <button class="open-folder-button" data-toggle-unit="${unit.id}" type="button">
+        ${expanded ? "Fechar pasta digital" : "Abrir pasta digital"}
+      </button>
       ${expanded ? unitDetail(unit) : ""}
     </article>
   `;
 }
 
 function unitDetail(unit) {
-  const byPhase = groupBy(unit.tasks || [], (task) => task.phase);
-  const accreditationRows = accreditationForUnit(unit);
+  const activeTab = state.unitTabs[unit.id] || "summary";
+  const tabs = [
+    ["summary", "Resumo geral"],
+    ["schedule", "Cronograma"],
+    ["kpis", "Indicadores"],
+    ["accreditation", "Credenciamentos"],
+    ["documents", "Documentos"],
+    ["training", "Treinamentos"],
+    ["meetings", "Atas"],
+    ["pendencies", "Pendências"],
+  ];
   return `
     <div class="unit-detail">
-      <section class="detail-section">
-        <h3>Progresso por fase</h3>
-        ${Object.entries(byPhase).map(([phase, tasks]) => phaseProgress(phase, tasks)).join("")}
-      </section>
-      <section class="detail-section">
-        <h3>Compras</h3>
-        <div class="compact-list">
-          ${(unit.purchases || [])
-            .map((item) => `
-              <label class="compact-row">
-                <span>${escapeHtml(item.item)}</span>
-                ${statusSelect(item)}
-              </label>
-            `)
-            .join("")}
-        </div>
-      </section>
-      <section class="detail-section wide">
-        <h3>Roadmap da unidade</h3>
-        <div class="table-wrap">
-          <table class="workspace-table compact-table">
-            <thead>
-              <tr>
-                <th>Fase</th>
-                <th>Item</th>
-                <th>Etapa</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${(unit.tasks || [])
-                .map((task) => `
-                  <tr>
-                    <td>${escapeHtml(task.phase)}</td>
-                    <td>${escapeHtml(task.item)}</td>
-                    <td><span class="row-title">${escapeHtml(task.process)}</span></td>
-                    <td>${statusSelect(task)}</td>
-                  </tr>
-                `)
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section class="detail-section wide">
-        <h3>Credenciamentos</h3>
-        <div class="table-wrap">
-          <table class="workspace-table compact-table">
-            <thead>
-              <tr>
-                <th>Grupo</th>
-                <th>Procedimento</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${accreditationRows
-                .map((row) => `
-                  <tr>
-                    <td>${escapeHtml(row.group)}</td>
-                    <td>${escapeHtml(row.name)}</td>
-                    <td>${heatCell(row.status)}</td>
-                  </tr>
-                `)
-                .join("") || `<tr><td colspan="3">${empty("Sem credenciamentos mapeados para esta unidade")}</td></tr>`}
-            </tbody>
-          </table>
-        </div>
+      <div class="unit-tabbar">
+        ${tabs.map(([key, label]) => `<button class="${activeTab === key ? "active" : ""}" data-unit-id="${unit.id}" data-unit-tab="${key}" type="button">${escapeHtml(label)}</button>`).join("")}
+      </div>
+      <section class="detail-section wide unit-tab-panel">
+        ${renderUnitTab(unit, activeTab)}
       </section>
     </div>
   `;
+}
+
+function renderUnitTab(unit, tab) {
+  const stats = unitStats(unit);
+  const renderers = {
+    summary: renderUnitSummary,
+    schedule: renderUnitSchedule,
+    kpis: renderUnitKpis,
+    accreditation: renderUnitAccreditation,
+    documents: renderUnitDocuments,
+    training: renderUnitTraining,
+    meetings: renderUnitMeetings,
+    pendencies: renderUnitPendencies,
+  };
+  return (renderers[tab] || renderUnitSummary)(unit, stats);
+}
+
+function renderUnitSummary(unit, stats) {
+  const status = unitStatus(unit);
+  return `
+    <div class="unit-summary-grid">
+      <article class="summary-card">
+        <span>Nome da unidade</span>
+        <strong>${escapeHtml(unit.name || `${unit.city} ${unit.state || ""}`)}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Código da franquia</span>
+        <strong>${escapeHtml(unit.id)}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Responsável</span>
+        <strong>${escapeHtml(unit.owner || unit.ownerName || "Implantação")}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Consultor responsável</span>
+        <strong>${escapeHtml(unit.owner || unit.ownerName || "Consultor Nexa")}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Assinatura</span>
+        <strong>${formatDate(contractDate(unit))}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Inauguração prevista</span>
+        <strong>${formatDate(unit.openingDate)}</strong>
+      </article>
+      <article class="summary-card">
+        <span>Status atual</span>
+        <strong>${escapeHtml(status.label)}</strong>
+      </article>
+    </div>
+    <div class="grid kpi-grid compact-kpis">
+      ${kpi("Implantação", `${stats.progress.percent}%`, `${stats.progress.done}/${stats.progress.total} etapas`)}
+      ${kpi("Documentação", `${stats.documentsPercent}%`, `${stats.pendingDocs} pendentes`)}
+      ${kpi("Credenciamento", `${stats.accreditationPercent}%`, `${stats.pendingAccreditation} pendentes`)}
+      ${kpi("Treinamentos", `${stats.trainingPercent}%`, `${stats.pendingTrainings} pendentes`)}
+      ${kpi("Pendências abertas", stats.openPending, `${stats.overduePending} vencida(s)`)}
+      ${kpi("Documentos enviados", stats.approvedDocs, `${stats.pendingDocs} aguardando`) }
+    </div>
+    ${renderAlerts(stats.alerts)}
+  `;
+}
+
+function renderUnitSchedule(unit, stats) {
+  const schedule = scheduleState(unit);
+  const byPhase = groupBy(unit.tasks || [], (task) => task.phase);
+  return `
+    <div class="schedule-hero ${schedule.className}">
+      <div>
+        <span>Implantação em ${schedule.totalDays} dias</span>
+        <strong>${schedule.main}</strong>
+        <small>${schedule.detail}</small>
+      </div>
+      <div class="schedule-ring" style="--value:${schedule.usedPercent}%">
+        <strong>${schedule.currentDay}</strong>
+        <span>dia atual</span>
+      </div>
+    </div>
+    <div class="phase-grid">
+      ${Object.entries(byPhase).map(([phase, tasks]) => phaseProgress(phase, tasks)).join("")}
+    </div>
+    <div class="table-wrap">
+      <table class="workspace-table compact-table">
+        <thead>
+          <tr>
+            <th>Etapa</th>
+            <th>Status</th>
+            <th>Responsável</th>
+            <th>Prazo</th>
+            <th>Conclusão</th>
+            <th>Observações</th>
+            <th>Anexos</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(unit.tasks || []).map((task) => `
+            <tr>
+              <td><span class="row-title">${escapeHtml(task.process)}</span><small>${escapeHtml(task.phase)}</small></td>
+              <td>${statusSelect(task)}</td>
+              <td>${escapeHtml(unit.owner || unit.ownerName || "Implantação")}</td>
+              <td>${formatDate(task.deadline || unit.openingDate)}</td>
+              <td>${formatDate(task.actualDate)}</td>
+              <td>${escapeHtml(task.notes || "")}</td>
+              <td>${task.notes ? "Registro em observações" : "Sem anexo"}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderUnitKpis(unit, stats) {
+  const days = daysTo(unit.openingDate);
+  return `
+    <div class="grid kpi-grid compact-kpis">
+      ${kpi("Dias restantes", days === null ? "sem data" : days >= 0 ? days : `${Math.abs(days)} atraso`, "até inauguração")}
+      ${kpi("Implantação", `${stats.progress.percent}%`, `${stats.progress.done}/${stats.progress.total} etapas`)}
+      ${kpi("Documentos pendentes", stats.pendingDocs, `${stats.approvedDocs} aprovados`)}
+      ${kpi("Credenciamentos concluídos", stats.closedAccreditation, `${stats.pendingAccreditation} pendentes`)}
+      ${kpi("Treinamentos realizados", stats.completedTrainings, `${stats.pendingTrainings} pendentes`)}
+      ${kpi("Reuniões realizadas", stats.meetings.length, "atas e alinhamentos")}
+      ${kpi("Pendências vencidas", stats.overduePending, `${stats.openPending} abertas`)}
+      ${kpi("Documentos aguardando assinatura", stats.documents.filter((item) => item.signature === "Aplicável" && item.status !== "Aprovado").length, "itens obrigatórios")}
+    </div>
+    ${renderAlerts(stats.alerts)}
+  `;
+}
+
+function renderUnitAccreditation(unit, stats) {
+  const counts = accreditationSummary(stats.accreditation);
+  return `
+    <div class="grid kpi-grid compact-kpis">
+      ${kpi("Total", stats.accreditation.length, "credenciamentos")}
+      ${kpi("Concluídos", counts.closed, "aprovados/fechados")}
+      ${kpi("Pendentes", counts.pending, "sem status")}
+      ${kpi("Em análise", counts.review, "em negociação")}
+      ${kpi("Reprovados", counts.rejected, "recusados")}
+    </div>
+    <div class="table-wrap">
+      <table class="workspace-table compact-table">
+        <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Anexos</th><th>Observações</th></tr></thead>
+        <tbody>
+          ${stats.accreditation.map((item) => `
+            <tr>
+              <td><span class="row-title">${escapeHtml(item.name)}</span><small>${escapeHtml(item.group)}</small></td>
+              <td>${heatCell(item.status)}</td>
+              <td>${formatDate(contractDate(unit))}</td>
+              <td>${isAccreditationClosed(item.status) ? formatDate(unit.openingDate) : "pendente"}</td>
+              <td>${escapeHtml(unit.owner || unit.ownerName || "Credenciamento")}</td>
+              <td>Sem anexo</td>
+              <td>${escapeHtml(item.status || "Aguardando atualização")}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="7">${empty("Sem credenciamentos mapeados")}</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderUnitDocuments(unit, stats) {
+  return renderGenericTable(
+    ["Nome", "Categoria", "Versão", "Data", "Responsável", "Status", "Assinatura", "Histórico", "Arquivo"],
+    stats.documents,
+    (item) => [
+      item.name,
+      item.category,
+      item.version,
+      formatDate(item.date),
+      item.owner,
+      item.status,
+      item.signature,
+      item.history,
+      "Visualizar / download pendente",
+    ],
+    "Nenhum documento mapeado a partir do roadmap"
+  );
+}
+
+function renderUnitTraining(unit, stats) {
+  return renderGenericTable(
+    ["Nome", "Data", "Instrutor", "Participantes", "Carga horária", "Certificado", "Status", "Presença", "Material", "Anexos"],
+    stats.trainings,
+    (item) => [item.name, formatDate(item.date), item.instructor, item.participants, item.workload, item.certificate, item.status, item.attendance, item.material, "Sem anexo"],
+    "Nenhum treinamento mapeado"
+  );
+}
+
+function renderUnitMeetings(unit, stats) {
+  return renderGenericTable(
+    ["Data", "Participantes", "Assuntos", "Pendências", "Responsáveis", "Prazo", "Anexos", "Histórico"],
+    stats.meetings,
+    (item) => [formatDate(item.date), item.participants, item.subject, item.pending, item.owner, formatDate(item.deadline), "Sem anexo", item.history],
+    "Nenhuma ata mapeada"
+  );
+}
+
+function renderUnitPendencies(unit, stats) {
+  return `
+    <div class="pendency-filters">
+      <span>Alta prioridade: ${stats.pendingItems.filter((item) => item.priority === "Alta").length}</span>
+      <span>Média: ${stats.pendingItems.filter((item) => item.priority === "Média").length}</span>
+      <span>Baixa: ${stats.pendingItems.filter((item) => item.priority === "Baixa").length}</span>
+      <span>Em atraso: ${stats.overduePending}</span>
+    </div>
+    ${renderGenericTable(
+      ["Pendência", "Responsável", "Prazo", "Prioridade", "Status", "Anexo", "Observações"],
+      stats.pendingItems,
+      (item) => [item.title, item.owner, formatDate(item.deadline), item.priority, item.status, item.attachment, item.notes],
+      "Nenhuma pendência aberta"
+    )}
+  `;
+}
+
+function renderGenericTable(headers, rows, mapRow, emptyMessage) {
+  return `
+    <div class="table-wrap">
+      <table class="workspace-table compact-table">
+        <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${rows.map((row) => `<tr>${mapRow(row).map((cell, index) => `<td>${index === 0 ? `<span class="row-title">${escapeHtml(cell)}</span>` : escapeHtml(cell)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${headers.length}">${empty(emptyMessage)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAlerts(alerts) {
+  return `
+    <div class="alert-panel">
+      <h3>Alertas automáticos</h3>
+      <div class="alert-list">
+        ${alerts.map((alert) => `<article><strong>${escapeHtml(alert.type)}</strong><span>${escapeHtml(alert.message)}</span></article>`).join("") || empty("Nenhum alerta crítico para esta unidade")}
+      </div>
+    </div>
+  `;
+}
+
+function contractDate(unit) {
+  const firstDone = (unit.tasks || []).find((task) => getStatus(task) === "Concluído" && (task.actualDate || task.deadline));
+  return firstDone?.actualDate || firstDone?.deadline || "";
+}
+
+function scheduleState(unit) {
+  const totalDays = 90;
+  const days = daysTo(unit.openingDate);
+  if (days === null) {
+    return { totalDays, currentDay: "—", usedPercent: 0, main: "Cronograma sem data", detail: "Defina a inauguração prevista para ativar a contagem.", className: "schedule-neutral" };
+  }
+  if (days < 0) {
+    return { totalDays, currentDay: totalDays, usedPercent: 100, main: `Prazo vencido há ${Math.abs(days)} dias`, detail: "A implantação está fora do prazo previsto.", className: "schedule-red" };
+  }
+  const currentDay = Math.max(1, totalDays - days);
+  const availablePercent = Math.round((days / totalDays) * 100);
+  const usedPercent = Math.min(100, Math.max(0, 100 - availablePercent));
+  let className = "schedule-green";
+  if (availablePercent <= 20) className = "schedule-red";
+  else if (availablePercent <= 40) className = "schedule-orange";
+  else if (availablePercent <= 70) className = "schedule-yellow";
+  return { totalDays, currentDay, usedPercent, main: `Restam ${days} dias`, detail: `${availablePercent}% do prazo disponível`, className };
+}
+
+function accreditationSummary(rows) {
+  return rows.reduce(
+    (acc, row) => {
+      const value = normalizeText(row.status);
+      if (isAccreditationClosed(row.status)) acc.closed += 1;
+      else if (!value) acc.pending += 1;
+      else if (value.includes("reprov") || value.includes("recus")) acc.rejected += 1;
+      else acc.review += 1;
+      return acc;
+    },
+    { closed: 0, pending: 0, review: 0, rejected: 0 }
+  );
 }
 
 function accreditationForUnit(unit) {
