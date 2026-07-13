@@ -2,6 +2,36 @@
 
 Aplicação local para acompanhar roadmaps de implantação, compras, credenciamentos e criação de planos para novas franquias.
 
+## Remodelação multi-tenant
+
+A primeira fase do 33Doctor APP adiciona:
+
+- uma franquia por tenant, com suporte futuro a múltiplas unidades;
+- administradores globais e usuários vinculados a franquias;
+- perfis `franchise_admin`, `manager` e `user`;
+- módulos de Negócios, RH, Departamento Pessoal, Contabilidade e Financeiro;
+- solicitação, ativação, suspensão e bloqueio de módulos;
+- Central Administrativa para criar usuários, definir acessos e liberar módulos;
+- leitura e alterações filtradas no banco pela franquia do usuário.
+
+Antes de publicar o frontend remodelado, aplique as migrations pendentes em ordem. A migration principal desta fase é:
+
+```text
+supabase/migrations/202607120001_multitenant_foundation.sql
+```
+
+Ela depende das migrations anteriores de perfil, credenciamento e registros operacionais. Os usuários atuais com papel `admin` continuam com acesso global.
+
+A estrutura de arquivos privados fica na migration:
+
+```text
+supabase/migrations/202607130001_tenant_private_storage.sql
+```
+
+Ela cria o bucket privado `tenant-documents`, a tabela `tenant_files` e a validação de acesso por franquia. Os arquivos ficam no Storage; nome, categoria, tenant, unidade, módulo e responsável ficam no Postgres.
+
+> Estado atual: as rotas seguras de upload, listagem, download e exclusão estão disponíveis em `/api/storage/*`. Os campos visuais de “Anexo” que ainda aceitam texto/link precisam ser conectados a essas rotas na implementação de cada fluxo operacional.
+
 ## Onde os dados ficam hoje
 
 Hoje o sistema é estático:
@@ -61,6 +91,30 @@ window.SUPABASE_CONFIG = {
 ```
 
 Nunca use a `service_role key` no frontend.
+
+Na Vercel, configure estas variáveis e faça um novo deploy:
+
+```text
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` é usada somente pelas funções em `/api/storage/*` para intermediar arquivos privados. Ela nunca é escrita em `supabase-config.js` nem enviada ao navegador.
+
+O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. Não crie políticas públicas no bucket: a autenticação deste projeto usa `app_sessions`, e as rotas server-side validam o token e o tenant antes de gerar URLs temporárias.
+
+## Checklist depois das migrations
+
+1. Configure `SUPABASE_URL` e `SUPABASE_ANON_KEY` na Vercel.
+2. Configure `SUPABASE_SERVICE_ROLE_KEY` apenas na Vercel para o Storage privado.
+3. Faça um novo deploy para gerar `supabase-config.js` com URL e chave pública.
+4. Confirme que o administrador existe em `app_users`, está ativo e possui senha criada com `extensions.crypt`.
+5. Vincule cada usuário franqueado à sua franquia em `tenant_memberships`.
+6. Confira os módulos liberados por franquia em `tenant_modules`.
+7. Teste login, leitura do portal e uma alteração de implantação antes de liberar usuários finais.
+
+Rodar migrations não configura variáveis da Vercel, não cria automaticamente os vínculos dos novos usuários e não transforma os módulos ainda em construção em fluxos completos. Implantação/Negócios tem persistência implementada; RH, DP, Contabilidade e Financeiro ainda precisam dos cadastros e regras operacionais específicos.
 
 ## Nova unidade
 

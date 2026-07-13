@@ -19,10 +19,16 @@ const state = {
   accreditationUnit: "all",
   statusOverrides: readStorage("franchiseStatusOverrides", {}),
   pendencyNotes: readStorage("franchisePendencyNotes", {}),
+  accreditationOverrides: readStorage("franchiseAccreditationOverrides", {}),
+  operationalOverrides: readStorage("franchiseOperationalOverrides", {}),
   unitRecords: readStorage("franchiseUnitRecords", {}),
-  profile: readStorage("nexaUserProfile", { name: "Usuário Nexa", photo: "" }),
+  profile: readStorage("nexaUserProfile", { name: "Usuário 33Doctor", photo: "" }),
   drafts: readStorage("franchiseDrafts", []),
   auth: readStorage("appSession", null),
+  accessContext: { platformAdmin: true, memberships: [] },
+  tenantModules: [],
+  adminData: null,
+  selectedTenantId: "",
   loading: false,
 };
 
@@ -73,6 +79,7 @@ loginScreen.addEventListener("submit", async (event) => {
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
     state.view = button.dataset.view;
+    if (state.view === "franchises") state.franchiseWorkspaceUnitId = "";
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     render();
@@ -132,6 +139,23 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-status-id]")) {
     await updateStatus(target.dataset.statusId, target.value);
   }
+  if (target.matches("[data-manual-record-status]")) {
+    updateManualRecord(target.dataset.manualRecordStatus, { status: target.value });
+    render();
+  }
+  if (target.matches("[data-accreditation-status]")) {
+    target.className = `${statusClass(target.value)} manual-status-select`;
+  }
+  if (target.matches('[data-operational-field="status"]')) {
+    target.className = `${statusClass(target.value)} manual-status-select`;
+  }
+  if (target.matches("[data-module-tenant]")) {
+    state.selectedTenantId = target.value;
+    render();
+  }
+  if (target.matches("[data-admin-module-status]")) {
+    adminSetModuleStatus(target);
+  }
 });
 
 app.addEventListener("click", (event) => {
@@ -187,17 +211,81 @@ app.addEventListener("click", (event) => {
     savePendencyChanges(savePendencies);
   }
 
+  const saveAccreditations = event.target.closest("[data-save-accreditations]");
+  if (saveAccreditations) {
+    saveAccreditationChanges(saveAccreditations);
+  }
+
+  const saveOperational = event.target.closest("[data-save-operational]");
+  if (saveOperational) {
+    saveOperationalChanges(saveOperational.dataset.saveOperational, saveOperational);
+  }
+
+  const deleteOperational = event.target.closest("[data-delete-operational]");
+  if (deleteOperational) {
+    deleteOperationalRecord(deleteOperational);
+  }
+
+  const deleteUnit = event.target.closest("[data-delete-unit]");
+  if (deleteUnit) {
+    deleteFranchiseUnit(deleteUnit.dataset.deleteUnit);
+  }
+
+  const deleteAccreditation = event.target.closest("[data-delete-accreditation]");
+  if (deleteAccreditation) {
+    deleteAccreditationRecord(deleteAccreditation);
+  }
+
+  const deleteRecord = event.target.closest("[data-delete-record]");
+  if (deleteRecord) {
+    deleteManualRecord(deleteRecord.dataset.deleteRecord);
+  }
+
   const removeDraft = event.target.closest("[data-remove-draft]");
   if (removeDraft) {
     state.drafts = state.drafts.filter((draft) => draft.id !== removeDraft.dataset.removeDraft);
     writeStorage("franchiseDrafts", state.drafts);
     render();
   }
+
+  const requestModuleButton = event.target.closest("[data-request-module]");
+  if (requestModuleButton) requestModule(requestModuleButton.dataset.requestModule, requestModuleButton);
+
+  const createPortalUserButton = event.target.closest("[data-create-portal-user]");
+  if (createPortalUserButton) adminCreatePortalUser(createPortalUserButton);
+
+  const saveUserAccessButton = event.target.closest("[data-save-user-access]");
+  if (saveUserAccessButton) adminSaveUserAccess(saveUserAccessButton);
+
+  const approveModuleButton = event.target.closest("[data-approve-module]");
+  if (approveModuleButton) adminApproveModuleRequest(approveModuleButton);
 });
 
 init();
 
 async function init() {
+  const isLocalSystemPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).get("preview") === "system";
+
+  if (isLocalSystemPreview) {
+    state.accessContext = { platformAdmin: true, memberships: [] };
+    state.profile = { name: "Administrador 33Doctor", photo: "" };
+    const previewTenants = data.units.map((unit) => ({
+      id: unit.tenantId || unit.id,
+      name: unit.name,
+      code: unit.id,
+    })).filter((tenant, index, tenants) => tenants.findIndex((item) => item.id === tenant.id) === index);
+    state.adminData = { tenants: previewTenants, users: [], requests: [] };
+    state.selectedTenantId = previewTenants[0]?.id || "";
+    state.tenantModules = previewTenants.flatMap((tenant) => ["hr", "dp", "accounting", "finance"].map((moduleCode) => ({
+      tenantId: tenant.id,
+      moduleCode,
+      status: "active",
+    })));
+    showApp();
+    return;
+  }
+
   if (!supabaseEnabled || !state.auth?.token) {
     showLanding();
     return;
@@ -221,8 +309,8 @@ function showLogin(message = "") {
   loginScreen.innerHTML = `
     <form class="login-card" data-login-form>
       <button class="login-close" data-close-login type="button" aria-label="Voltar para a apresentação">×</button>
-      <div class="brand login-brand">
-        <img class="brand-lockup" src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" />
+      <div class="brand product-brand login-product-brand" aria-label="33Doctor APP, desenvolvido pela Nexa">
+        <span class="brand-platform-lockup login-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
       </div>
       <div>
         <p class="eyebrow">Acesso restrito</p>
@@ -256,6 +344,7 @@ function showApp() {
   appShell.hidden = false;
   updateSourceCount();
   updateProfileUI();
+  updateNavigationAccess();
   render();
 }
 
@@ -292,20 +381,47 @@ async function logout() {
 }
 
 async function loadSupabaseData() {
-  const payload = await supabaseRpc("get_app_data", { p_token: state.auth.token });
+  let payload;
+  try {
+    payload = await supabaseRpc("get_portal_data", { p_token: state.auth.token });
+  } catch (error) {
+    if (!String(error.message || "").toLowerCase().includes("get_portal_data")) throw error;
+    payload = await supabaseRpc("get_app_data", { p_token: state.auth.token });
+  }
   data = normalizeLoadedData(payload);
+  state.accessContext = payload.accessContext || {
+    platformAdmin: ["admin", "platform_admin"].includes(String(state.auth?.user?.role || "").toLowerCase()),
+    memberships: [],
+  };
+  state.tenantModules = payload.tenantModules || fallbackTenantModules(payload.units || []);
+  state.adminData = payload.admin || null;
+  state.selectedTenantId = state.accessContext.memberships?.[0]?.tenantId || payload.units?.[0]?.tenantId || "";
+  if (payload.userProfile) {
+    state.profile = {
+      name: payload.userProfile.name || state.profile.name || "Usuário 33Doctor",
+      photo: payload.userProfile.photo || state.profile.photo || "",
+    };
+    writeStorage("nexaUserProfile", state.profile);
+  }
   state.selectedUnitId = data.units[0]?.id || "";
   state.dashboardUnit = "all";
   state.expandedUnitId = "";
   state.franchiseWorkspaceUnitId = "";
+  updateNavigationAccess();
 }
 
 function normalizeLoadedData(payload) {
+  const operationalRecords = payload.operationalRecords || [];
   return {
     ...payload,
     sourceFiles: payload.sourceFiles || [],
     units: payload.units || [],
     accreditation: payload.accreditation || { units: [], procedures: [] },
+    operationalRecords,
+    operationalRecordsByKey: operationalRecords.reduce((acc, record) => {
+      acc[operationalKey(record.unitId, record.recordType, record.recordId)] = record;
+      return acc;
+    }, {}),
     modelTasks: payload.modelTasks || [],
     purchaseItems: payload.purchaseItems || [],
     summary: {
@@ -350,9 +466,15 @@ function render() {
     purchases: "Compras",
     accreditation: "Credenciamentos",
     "new-unit": "Nova franquia",
+    hr: "Recursos Humanos",
+    dp: "Departamento Pessoal",
+    accounting: "Contabilidade",
+    finance: "Financeiro",
+    admin: "Administração",
   };
-  title.textContent = titles[state.view];
-  updateTopbarState(titles[state.view]);
+  const currentTitle = titles[state.view] || "Dashboard";
+  title.textContent = currentTitle;
+  updateTopbarState(currentTitle);
 
   const views = {
     dashboard: renderDashboard,
@@ -362,8 +484,14 @@ function render() {
     purchases: renderPurchases,
     accreditation: renderAccreditation,
     "new-unit": renderNewUnit,
+    hr: () => renderModuleWorkspace("hr"),
+    dp: () => renderModuleWorkspace("dp"),
+    accounting: () => renderModuleWorkspace("accounting"),
+    finance: () => renderModuleWorkspace("finance"),
+    admin: renderAdminCenter,
   };
-  app.innerHTML = views[state.view]();
+  app.innerHTML = (views[state.view] || renderDashboard)();
+  applyViewPermissions();
 }
 
 function updateTopbarState(currentTitle) {
@@ -396,7 +524,7 @@ function updateProfileUI() {
 }
 
 function currentProfileName() {
-  return state.profile.name || state.auth?.user?.name || state.auth?.name || state.auth?.email?.split("@")[0] || "Usuário Nexa";
+  return state.profile.name || state.auth?.user?.name || state.auth?.name || state.auth?.email?.split("@")[0] || "Usuário 33Doctor";
 }
 
 function profileInitials(name) {
@@ -409,30 +537,401 @@ function profileInitials(name) {
     .toUpperCase() || "NX";
 }
 
-function saveProfile() {
+async function saveProfile() {
   state.profile = {
     ...state.profile,
-    name: profileNameInput.value.trim() || "Usuário Nexa",
+    name: profileNameInput.value.trim() || "Usuário 33Doctor",
   };
   writeStorage("nexaUserProfile", state.profile);
+  updateProfileUI();
+  await persistProfile(Boolean(state.profile.photo));
   profileMenu.hidden = true;
   profileToggle.setAttribute("aria-expanded", "false");
-  updateProfileUI();
 }
 
 function updateProfilePhoto(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.addEventListener("load", () => {
+  reader.addEventListener("load", async () => {
     state.profile = {
       ...state.profile,
       photo: reader.result,
     };
     writeStorage("nexaUserProfile", state.profile);
     updateProfileUI();
+    await persistProfile(true);
   });
   reader.readAsDataURL(file);
+}
+
+async function persistProfile(includePhoto) {
+  if (!supabaseEnabled || !state.auth?.token) return;
+
+  try {
+    const payload = {
+      p_token: state.auth.token,
+      p_display_name: state.profile.name || currentProfileName(),
+      p_photo_data: includePhoto ? state.profile.photo || "" : null,
+    };
+    const savedProfile = await supabaseRpc("update_user_profile", payload);
+    state.profile = {
+      name: savedProfile?.name || state.profile.name || "Usuário 33Doctor",
+      photo: Object.prototype.hasOwnProperty.call(savedProfile || {}, "photo") ? savedProfile.photo || "" : state.profile.photo || "",
+    };
+    writeStorage("nexaUserProfile", state.profile);
+    updateProfileUI();
+  } catch (error) {
+    alert(error.message || "Não foi possível salvar o perfil no Supabase.");
+  }
+}
+
+const moduleDefinitions = {
+  hr: {
+    name: "Recursos Humanos",
+    eyebrow: "Atração e seleção",
+    description: "Vagas, página pública, candidatos, triagem, entrevistas e recomendações.",
+    metrics: [["Vagas abertas", "0"], ["Candidatos", "0"], ["Em triagem", "0"], ["Entrevistas", "0"]],
+    workflow: ["Requisição de vaga", "Publicação", "Triagem Nexa", "Entrevistas", "Recomendação"],
+  },
+  dp: {
+    name: "Departamento Pessoal",
+    eyebrow: "Rotina trabalhista",
+    description: "Colaboradores, admissões, competências da folha, benefícios, férias e obrigações.",
+    metrics: [["Colaboradores", "0"], ["Admissões", "0"], ["Folha atual", "Aberta"], ["Pendências", "0"]],
+    workflow: ["Cadastro", "Admissão", "Movimentações", "Folha", "Conferência"],
+  },
+  accounting: {
+    name: "Contabilidade",
+    eyebrow: "Documentos e competências",
+    description: "Recebimento, conferência e devolução de documentos fiscais e contábeis.",
+    metrics: [["Competência", "Atual"], ["Solicitados", "0"], ["Em conferência", "0"], ["Devolvidos", "0"]],
+    workflow: ["Solicitação", "Envio", "Conferência", "Correção", "Devolução"],
+  },
+  finance: {
+    name: "Financeiro",
+    eyebrow: "Controle e previsibilidade",
+    description: "Contas a pagar e receber, fluxo de caixa, orçamento, conciliação e indicadores.",
+    metrics: [["Saldo projetado", "R$ 0"], ["A receber", "R$ 0"], ["A pagar", "R$ 0"], ["Vencidos", "0"]],
+    workflow: ["Lançamentos", "Aprovação", "Pagamento", "Conciliação", "Indicadores"],
+  },
+};
+
+function fallbackTenantModules(units) {
+  return (units || []).flatMap((unit) => Object.keys({ business: true, ...moduleDefinitions }).map((moduleCode) => ({
+    tenantId: unit.tenantId || unit.id,
+    moduleCode,
+    status: moduleCode === "business" ? "active" : "locked",
+  })));
+}
+
+function isPlatformAdmin() {
+  return Boolean(state.accessContext?.platformAdmin);
+}
+
+function canManageTenant(tenantId = currentTenantId()) {
+  if (isPlatformAdmin()) return true;
+  const membership = (state.accessContext?.memberships || []).find((item) => item.tenantId === tenantId);
+  return Boolean(membership?.role === "franchise_admin" || membership?.role === "manager");
+}
+
+function applyViewPermissions() {
+  if (isPlatformAdmin()) return;
+  app.querySelectorAll("[data-delete-unit]").forEach((element) => { element.hidden = true; });
+  if (canManageTenant()) return;
+
+  const protectedSelectors = [
+    "[data-status-id]", "[data-pendency-status]", "[data-pendency-note]",
+    "[data-accreditation-status]", "[data-accreditation-request-date]", "[data-accreditation-approval-date]",
+    "[data-accreditation-owner]", "[data-accreditation-attachments]", "[data-accreditation-notes]",
+    "[data-operational-field]", "[data-unit-record-form] input", "[data-unit-record-form] select",
+    "[data-unit-record-form] textarea", "[data-add-unit-record]", "[data-save-pendencies]",
+    "[data-save-accreditations]", "[data-save-operational]", "[data-delete-operational]",
+    "[data-delete-accreditation]", "[data-delete-record]",
+  ];
+  app.querySelectorAll(protectedSelectors.join(",")).forEach((element) => { element.disabled = true; });
+  if (["franchises", "roadmap", "purchases", "accreditation"].includes(state.view)) {
+    app.insertAdjacentHTML("afterbegin", '<div class="permission-banner">Visualização de acompanhamento. Alterações são permitidas para administradores e gerentes da franquia.</div>');
+  }
+}
+
+function availableTenants() {
+  if (isPlatformAdmin()) return state.adminData?.tenants || data.units.map((unit) => ({ id: unit.tenantId || unit.id, name: unit.name, code: unit.id }));
+  return (state.accessContext?.memberships || []).map((membership) => ({
+    id: membership.tenantId,
+    name: membership.tenantName,
+    code: membership.tenantCode,
+    role: membership.role,
+  }));
+}
+
+function currentTenantId() {
+  const tenants = availableTenants();
+  if (!tenants.some((tenant) => tenant.id === state.selectedTenantId)) state.selectedTenantId = tenants[0]?.id || "";
+  return state.selectedTenantId;
+}
+
+function tenantModuleStatus(moduleCode, tenantId = currentTenantId()) {
+  if (moduleCode === "business") return "active";
+  return state.tenantModules.find((item) => item.tenantId === tenantId && item.moduleCode === moduleCode)?.status || "locked";
+}
+
+function moduleStatusLabel(status) {
+  return { active: "Ativo", requested: "Solicitado", suspended: "Suspenso", locked: "Bloqueado" }[status] || "Bloqueado";
+}
+
+function updateNavigationAccess() {
+  document.querySelectorAll("[data-platform-only]").forEach((element) => {
+    element.hidden = !isPlatformAdmin();
+  });
+  document.querySelectorAll("[data-module-nav]").forEach((button) => {
+    const status = isPlatformAdmin() ? "admin" : tenantModuleStatus(button.dataset.moduleNav);
+    button.dataset.moduleAccess = status;
+    const label = button.querySelector("[data-module-state]");
+    if (label) label.textContent = status === "admin" ? "Gerenciar" : moduleStatusLabel(status);
+  });
+}
+
+function tenantSelector() {
+  const tenants = availableTenants();
+  return `
+    <label class="tenant-context-select">
+      <span>Franquia</span>
+      <select data-module-tenant>
+        ${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}"${tenant.id === currentTenantId() ? " selected" : ""}>${escapeHtml(tenant.name)}</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function renderModuleWorkspace(moduleCode) {
+  const module = moduleDefinitions[moduleCode];
+  const tenantId = currentTenantId();
+  const status = tenantModuleStatus(moduleCode, tenantId);
+  const tenant = availableTenants().find((item) => item.id === tenantId);
+  if (!tenant) return empty("Seu usuário ainda não está vinculado a uma franquia.");
+
+  const accessPanel = status === "active"
+    ? renderActiveModule(moduleCode, module, tenant)
+    : renderLockedModule(moduleCode, module, tenant, status);
+
+  return `
+    <section class="module-page-head">
+      <div>
+        <span class="eyebrow">${escapeHtml(module.eyebrow)}</span>
+        <h2>${escapeHtml(module.name)}</h2>
+        <p>${escapeHtml(module.description)}</p>
+      </div>
+      ${tenantSelector()}
+    </section>
+    ${accessPanel}
+  `;
+}
+
+function renderLockedModule(moduleCode, module, tenant, status) {
+  const requested = status === "requested";
+  const suspended = status === "suspended";
+  return `
+    <section class="module-lock-panel ${escapeHtml(status)}">
+      <div class="module-lock-icon" aria-hidden="true">${requested ? "…" : suspended ? "!" : "×"}</div>
+      <span class="module-status-pill ${escapeHtml(status)}">${moduleStatusLabel(status)}</span>
+      <h3>${requested ? "Solicitação enviada para análise" : suspended ? "Acesso temporariamente suspenso" : `${escapeHtml(module.name)} ainda não está habilitado`}</h3>
+      <p>${requested
+        ? `A administração recebeu a solicitação da franquia ${escapeHtml(tenant.name)}. O módulo aparecerá completo assim que for liberado.`
+        : suspended
+          ? "Procure a administração da plataforma para regularizar o acesso deste módulo."
+          : "Este é um módulo adicional do 33Doctor APP e precisa ser liberado pela administração da plataforma."}</p>
+      ${!isPlatformAdmin() && status === "locked" ? `<button class="primary-button" data-request-module="${escapeHtml(moduleCode)}" type="button">Solicitar ativação</button>` : ""}
+      ${isPlatformAdmin() ? `<button class="primary-button" data-approve-module="${escapeHtml(moduleCode)}" data-tenant-id="${escapeHtml(tenant.id)}" type="button">Ativar para esta franquia</button>` : ""}
+    </section>
+  `;
+}
+
+function renderActiveModule(moduleCode, module, tenant) {
+  return `
+    <section class="module-active-hero">
+      <div>
+        <span class="module-status-pill active">Módulo ativo</span>
+        <h3>${escapeHtml(tenant.name)}</h3>
+        <p>A estrutura do departamento está pronta para receber os fluxos operacionais.</p>
+      </div>
+      <button class="primary-button" type="button" disabled>Novo registro</button>
+    </section>
+    <div class="module-metric-grid">
+      ${module.metrics.map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>Sem registros nesta etapa</small></article>`).join("")}
+    </div>
+    <section class="panel module-workflow-panel">
+      <div class="section-title-row"><div><span class="eyebrow">Fluxo do módulo</span><h2>Operação orientada por etapas</h2></div></div>
+      <div class="module-workflow">
+        ${module.workflow.map((step, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeHtml(step)}</strong><small>Configuração da próxima entrega</small></article>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminCenter() {
+  if (!isPlatformAdmin()) return empty("Esta área é exclusiva da administração da plataforma.");
+  const admin = state.adminData || { tenants: [], users: [], requests: [] };
+  const pendingRequests = admin.requests.filter((request) => request.status === "pending");
+  const activeModules = state.tenantModules.filter((item) => item.status === "active").length;
+  const configurableModules = Object.keys(moduleDefinitions);
+
+  return `
+    <section class="admin-hero">
+      <div><span class="eyebrow">Controle da rede</span><h2>Central Administrativa</h2><p>Usuários, franquias, acessos e módulos em um único painel.</p></div>
+      <span class="admin-scope-pill">Acesso global</span>
+    </section>
+    <div class="module-metric-grid admin-metrics">
+      ${[["Franquias", admin.tenants.length], ["Usuários", admin.users.length], ["Módulos ativos", activeModules], ["Solicitações", pendingRequests.length]].map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>Atualizado agora</small></article>`).join("")}
+    </div>
+    ${renderAdminRequests(pendingRequests)}
+    <section class="panel admin-section">
+      <div class="section-title-row"><div><span class="eyebrow">Ativações</span><h2>Módulos por franquia</h2></div><span class="badge info">Negócios ativo por padrão</span></div>
+      <div class="table-wrap">
+        <table class="admin-module-table">
+          <thead><tr><th>Franquia</th>${configurableModules.map((code) => `<th>${escapeHtml(moduleDefinitions[code].name)}</th>`).join("")}</tr></thead>
+          <tbody>${admin.tenants.map((tenant) => `<tr><td><strong>${escapeHtml(tenant.name)}</strong><small>${escapeHtml(tenant.code)}</small></td>${configurableModules.map((code) => {
+            const status = tenantModuleStatus(code, tenant.id);
+            return `<td><select class="module-status-select ${escapeHtml(status)}" data-admin-module-status data-tenant-id="${escapeHtml(tenant.id)}" data-module-code="${escapeHtml(code)}">${["locked", "requested", "active", "suspended"].map((option) => `<option value="${option}"${option === status ? " selected" : ""}>${moduleStatusLabel(option)}</option>`).join("")}</select></td>`;
+          }).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="admin-grid">
+      ${renderAdminUserForm(admin.tenants)}
+      ${renderAdminUsers(admin.users, admin.tenants)}
+    </section>
+  `;
+}
+
+function renderAdminRequests(requests) {
+  if (!requests.length) return "";
+  return `
+    <section class="panel admin-section request-section">
+      <div class="section-title-row"><div><span class="eyebrow">Aguardando decisão</span><h2>Solicitações de módulos</h2></div><span class="badge progress">${requests.length} pendente(s)</span></div>
+      <div class="admin-request-list">${requests.map((request) => `<article><div><strong>${escapeHtml(request.moduleName)}</strong><span>${escapeHtml(request.tenantName)} · solicitado por ${escapeHtml(request.requestedBy)}</span></div><button class="primary-button" data-approve-module="${escapeHtml(request.moduleCode)}" data-tenant-id="${escapeHtml(request.tenantId)}" type="button">Liberar acesso</button></article>`).join("")}</div>
+    </section>
+  `;
+}
+
+function renderAdminUserForm(tenants) {
+  return `
+    <section class="panel admin-section" data-admin-user-form>
+      <span class="eyebrow">Novo acesso</span><h2>Criar usuário da franquia</h2>
+      <div class="admin-form-grid">
+        <label>Nome<input name="name" placeholder="Nome completo" /></label>
+        <label>E-mail<input name="email" type="email" placeholder="usuario@empresa.com" /></label>
+        <label>Senha temporária<input name="password" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /></label>
+        <label>Franquia<select name="tenantId"><option value="">Selecione</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select></label>
+        <label>Perfil<select name="role"><option value="franchise_admin">Administrador da franquia</option><option value="manager">Gerente</option><option value="user">Usuário</option></select></label>
+      </div>
+      <div class="form-actions"><button class="primary-button" data-create-portal-user type="button">Criar usuário</button></div>
+    </section>
+  `;
+}
+
+function renderAdminUsers(users, tenants) {
+  return `
+    <section class="panel admin-section admin-user-list-section">
+      <span class="eyebrow">Equipe e acessos</span><h2>Usuários cadastrados</h2>
+      <div class="admin-user-list">${users.map((user) => `<article data-admin-access-row data-user-id="${escapeHtml(user.id)}"><div class="admin-user-copy"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><div class="badge-row">${user.memberships.map((membership) => `<span class="badge info">${escapeHtml(membership.tenantName)} · ${escapeHtml(roleLabel(membership.role))}</span>`).join("") || `<span class="badge ${["admin", "platform_admin"].includes(user.platformRole) ? "done" : "pending"}">${["admin", "platform_admin"].includes(user.platformRole) ? "Administrador global" : "Sem franquia"}</span>`}</div></div>${["admin", "platform_admin"].includes(user.platformRole) ? "" : `<div class="admin-access-controls"><select data-access-tenant><option value="">Franquia</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select><select data-access-role><option value="franchise_admin">Administrador</option><option value="manager">Gerente</option><option value="user">Usuário</option></select><select data-access-active><option value="true">Acesso ativo</option><option value="false">Suspender acesso</option></select><button class="ghost-button" data-save-user-access type="button">Salvar acesso</button></div>`}</article>`).join("") || empty("Nenhum usuário cadastrado")}</div>
+    </section>
+  `;
+}
+
+function roleLabel(role) {
+  return { franchise_admin: "Administrador", manager: "Gerente", user: "Usuário" }[role] || role;
+}
+
+async function requestModule(moduleCode, button) {
+  const tenantId = currentTenantId();
+  if (!tenantId) return;
+  button.disabled = true;
+  try {
+    await supabaseRpc("request_tenant_module", { p_token: state.auth.token, p_tenant_id: tenantId, p_module_code: moduleCode, p_notes: null });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "Não foi possível solicitar o módulo.");
+  }
+}
+
+async function adminSetModuleStatus(select) {
+  select.disabled = true;
+  try {
+    await supabaseRpc("admin_set_tenant_module", {
+      p_token: state.auth.token,
+      p_tenant_id: select.dataset.tenantId,
+      p_module_code: select.dataset.moduleCode,
+      p_status: select.value,
+    });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    select.disabled = false;
+    alert(error.message || "Não foi possível atualizar o módulo.");
+  }
+}
+
+async function adminApproveModuleRequest(button) {
+  button.disabled = true;
+  try {
+    await supabaseRpc("admin_set_tenant_module", {
+      p_token: state.auth.token,
+      p_tenant_id: button.dataset.tenantId,
+      p_module_code: button.dataset.approveModule,
+      p_status: "active",
+    });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "Não foi possível liberar o módulo.");
+  }
+}
+
+async function adminCreatePortalUser(button) {
+  const form = button.closest("[data-admin-user-form]");
+  const values = Object.fromEntries([...form.querySelectorAll("input, select")].map((field) => [field.name, field.value.trim()]));
+  if (!values.name || !values.email || !values.password || !values.tenantId) {
+    alert("Preencha nome, e-mail, senha e franquia.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await supabaseRpc("admin_create_portal_user", {
+      p_token: state.auth.token, p_email: values.email, p_name: values.name, p_password: values.password,
+      p_tenant_id: values.tenantId, p_role: values.role,
+    });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "Não foi possível criar o usuário.");
+  }
+}
+
+async function adminSaveUserAccess(button) {
+  const row = button.closest("[data-admin-access-row]");
+  const tenantId = row.querySelector("[data-access-tenant]").value;
+  const role = row.querySelector("[data-access-role]").value;
+  const active = row.querySelector("[data-access-active]").value === "true";
+  if (!tenantId) {
+    alert("Selecione uma franquia.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await supabaseRpc("admin_set_user_access", {
+      p_token: state.auth.token, p_user_id: row.dataset.userId, p_tenant_id: tenantId, p_role: role, p_active: active,
+    });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "Não foi possível vincular o usuário.");
+  }
 }
 
 function allUnits() {
@@ -533,8 +1032,13 @@ function canonicalCategory(text) {
 function documentItems(unit) {
   return (unit.tasks || [])
     .filter((task) => /document|contrato|cnpj|licen|alvar|bombeir|vigil|manual|arquitet|ata|relat|credenc|finance|foto|marketing|trein/i.test(normalizeText(task.process)))
-    .map((task, index) => ({
+    .map((task, index) => applyOperationalRecord(unit.id, "documents", {
       id: `doc-${task.id}`,
+      recordId: `doc-${task.id}`,
+      unitId: unit.id,
+      recordType: "documents",
+      sourceId: task.id,
+      base: true,
       name: task.process,
       category: canonicalCategory(task.process),
       version: `v${Math.max(1, Math.floor(index / 5) + 1)}`,
@@ -543,14 +1047,21 @@ function documentItems(unit) {
       status: getStatus(task) === "Concluído" ? "Aprovado" : getStatus(task) === "Em Andamento" ? "Em análise" : "Pendente",
       signature: /contrato|aditivo|document/i.test(normalizeText(task.process)) ? "Aplicável" : "Não aplicável",
       history: task.notes || "Sem histórico registrado",
-    }));
+      file: "Visualizar / download pendente",
+    }))
+    .filter((item) => !item.hidden);
 }
 
 function trainingItems(unit) {
   return (unit.tasks || [])
     .filter((task) => normalizeText(task.process).includes("trein"))
-    .map((task) => ({
+    .map((task) => applyOperationalRecord(unit.id, "trainings", {
       id: `training-${task.id}`,
+      recordId: `training-${task.id}`,
+      unitId: unit.id,
+      recordType: "trainings",
+      sourceId: task.id,
+      base: true,
       name: task.process,
       date: task.actualDate || task.deadline || "",
       instructor: "Equipe Nexa",
@@ -560,24 +1071,33 @@ function trainingItems(unit) {
       status: getStatus(task),
       attendance: getStatus(task) === "Concluído" ? "Registrada" : "Pendente",
       material: /manual/i.test(normalizeText(task.process)) ? "Manual da franquia" : "Material operacional",
+      attachments: "Sem anexo",
       notes: task.notes || "",
-    }));
+    }))
+    .filter((item) => !item.hidden);
 }
 
 function meetingItems(unit) {
   return (unit.tasks || [])
     .filter((task) => /reuniao|apresentacao|boas vindas|kickoff|alinhamento/i.test(normalizeText(task.process)))
     .slice(0, 16)
-    .map((task) => ({
+    .map((task) => applyOperationalRecord(unit.id, "meetings", {
       id: `meeting-${task.id}`,
+      recordId: `meeting-${task.id}`,
+      unitId: unit.id,
+      recordType: "meetings",
+      sourceId: task.id,
+      base: true,
       date: task.actualDate || task.deadline || "",
       participants: unit.franchisee || "Franqueado",
       subject: task.process,
       pending: getStatus(task) === "Concluído" ? "Sem pendência aberta" : task.process,
       owner: unit.owner || unit.ownerName || "Consultor responsável",
       deadline: task.deadline || unit.openingDate,
+      attachments: "Sem anexo",
       history: task.notes || "Sem observações",
-    }));
+    }))
+    .filter((item) => !item.hidden);
 }
 
 function pendingItemsForUnit(unit) {
@@ -654,6 +1174,27 @@ function normalizeText(value) {
 
 function getStatus(item) {
   return state.statusOverrides[item.id] || item.status || "Sem status";
+}
+
+function operationalKey(unitId, recordType, recordId) {
+  return `${unitId}::${recordType}::${recordId}`;
+}
+
+function applyOperationalRecord(unitId, recordType, item) {
+  const recordId = item.recordId || item.id;
+  const key = operationalKey(unitId, recordType, recordId);
+  const saved = data.operationalRecordsByKey?.[key] || {};
+  const local = state.operationalOverrides[key] || {};
+  return {
+    ...item,
+    ...saved,
+    ...local,
+    id: item.id,
+    recordId,
+    unitId,
+    recordType,
+    operationalKey: key,
+  };
 }
 
 async function updateStatus(itemId, status) {
@@ -1048,6 +1589,7 @@ function renderUnitWorkspacePage(unit, units) {
           ${units.map((item) => `<option value="${item.id}"${unit.id === item.id ? " selected" : ""}>${escapeHtml(item.city)} ${escapeHtml(item.state || "")}</option>`).join("")}
         </select>
       </label>
+      <button class="ghost-button danger-action" data-delete-unit="${unit.id}" type="button">Excluir franquia</button>
     </section>
 
     <section class="unit-focus-hero">
@@ -1133,6 +1675,9 @@ function dashboardUnitRow(unit) {
       </div>
       <button class="open-folder-button" data-toggle-unit="${unit.id}" type="button">
         Abrir pasta digital
+      </button>
+      <button class="delete-unit-button" data-delete-unit="${unit.id}" type="button">
+        Excluir franquia
       </button>
     </article>
   `;
@@ -1289,7 +1834,9 @@ function renderUnitKpis(unit, stats) {
 }
 
 function renderUnitAccreditation(unit, stats) {
-  const manualRows = customRecords(unit, "accreditations").map((record) => ({
+  const manualRows = customRecords(unit, "accreditations").filter((record) => !record.hidden).map((record) => ({
+    id: record.id,
+    manual: true,
     group: record.group || "Manual",
     name: record.name || "Credenciamento",
     status: record.status || "Pendente",
@@ -1320,27 +1867,37 @@ function renderUnitAccreditation(unit, stats) {
     ], "Adicionar credenciamento")}
     <div class="table-wrap">
       <table class="workspace-table compact-table">
-        <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Anexos</th><th>Observações</th></tr></thead>
+        <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Anexos</th><th>Observações</th><th>Ações</th></tr></thead>
         <tbody>
           ${rows.map((item) => `
-            <tr>
+            <tr data-accreditation-row data-accreditation-id="${escapeHtml(item.id)}" data-unit-id="${escapeHtml(item.unitId || unit.id)}" data-procedure-id="${escapeHtml(item.procedureId || "")}">
               <td><span class="row-title">${escapeHtml(item.name)}</span><small>${escapeHtml(item.group)}</small></td>
-              <td>${heatCell(item.status)}</td>
-              <td>${formatDate(item.requestDate || contractDate(unit))}</td>
-              <td>${item.approvalDate ? formatDate(item.approvalDate) : isAccreditationClosed(item.status) ? formatDate(unit.openingDate) : "pendente"}</td>
-              <td>${escapeHtml(item.owner || unit.owner || unit.ownerName || "Credenciamento")}</td>
-              <td>${escapeHtml(item.attachments || "Sem anexo")}</td>
-              <td>${escapeHtml(item.notes || item.status || "Aguardando atualização")}</td>
+              <td>${accreditationStatusSelect(item)}</td>
+              <td><input class="table-input" data-accreditation-request-date type="date" value="${escapeHtml(item.requestDate || "")}" /></td>
+              <td><input class="table-input" data-accreditation-approval-date type="date" value="${escapeHtml(item.approvalDate || "")}" /></td>
+              <td><input class="table-input" data-accreditation-owner type="text" value="${escapeHtml(item.owner || unit.owner || unit.ownerName || "Credenciamento")}" /></td>
+              <td><input class="table-input" data-accreditation-attachments type="text" value="${escapeHtml(item.attachments || "")}" placeholder="Sem anexo" /></td>
+              <td><textarea class="table-textarea" data-accreditation-notes rows="2" placeholder="Observações">${escapeHtml(item.notes || "")}</textarea></td>
+              <td>${accreditationActions(item)}</td>
             </tr>
-          `).join("") || `<tr><td colspan="7">${empty("Sem credenciamentos mapeados")}</td></tr>`}
+          `).join("") || `<tr><td colspan="8">${empty("Sem credenciamentos mapeados")}</td></tr>`}
         </tbody>
       </table>
+    </div>
+    <div class="pendency-save-bar">
+      <span>As alterações de credenciamento só entram no sistema ao salvar.</span>
+      <button class="primary-button" data-save-accreditations type="button">Salvar credenciamentos</button>
     </div>
   `;
 }
 
 function renderUnitDocuments(unit, stats) {
-  const manualRows = customRecords(unit, "documents").map((record) => ({
+  const manualRows = customRecords(unit, "documents").filter((record) => !record.hidden).map((record) => ({
+    id: record.id,
+    recordId: record.id,
+    unitId: unit.id,
+    recordType: "documents",
+    manual: true,
     name: record.name || "Documento",
     category: record.category || "Documento da empresa",
     version: record.version || "v1",
@@ -1364,27 +1921,27 @@ function renderUnitDocuments(unit, stats) {
       { name: "file", label: "Arquivo", placeholder: "Link ou nome do arquivo" },
       { name: "history", label: "Histórico", type: "textarea", placeholder: "Observações e versões anteriores" },
     ], "Adicionar documento")}
-    ${renderGenericTable(
-    ["Nome", "Categoria", "Versão", "Data", "Responsável", "Status", "Assinatura", "Histórico", "Arquivo"],
-    rows,
-    (item) => [
-      item.name,
-      item.category,
-      item.version,
-      formatDate(item.date),
-      item.owner,
-      item.status,
-      item.signature,
-      item.history,
-      item.file || "Visualizar / download pendente",
-    ],
-    "Nenhum documento mapeado a partir do roadmap"
-  )}
+    ${renderEditableOperationalTable("documents", rows, [
+      { key: "name", label: "Nome", type: "text", minWidth: 220 },
+      { key: "category", label: "Categoria", type: "select", options: ["Contratos", "Alvarás", "Licenças", "Manual da franquia", "Marketing", "Financeiro", "Documentos da empresa", "Documentos societários", "Projeto arquitetônico", "Atas de reuniões", "Treinamentos"] },
+      { key: "version", label: "Versão", type: "text", minWidth: 80 },
+      { key: "date", label: "Data", type: "date" },
+      { key: "owner", label: "Responsável", type: "text" },
+      { key: "status", label: "Status", type: "status", options: ["Pendente", "Em análise", "Aprovado", "Reprovado"] },
+      { key: "signature", label: "Assinatura", type: "select", options: ["Não informado", "Aplicável", "Não aplicável", "Assinado"] },
+      { key: "history", label: "Histórico", type: "textarea", minWidth: 320 },
+      { key: "file", label: "Arquivo", type: "text", minWidth: 220 },
+    ], "Nenhum documento mapeado a partir do roadmap")}
   `;
 }
 
 function renderUnitTraining(unit, stats) {
-  const manualRows = customRecords(unit, "trainings").map((record) => ({
+  const manualRows = customRecords(unit, "trainings").filter((record) => !record.hidden).map((record) => ({
+    id: record.id,
+    recordId: record.id,
+    unitId: unit.id,
+    recordType: "trainings",
+    manual: true,
     name: record.name || "Treinamento",
     date: record.date || "",
     instructor: record.instructor || "Equipe Nexa",
@@ -1410,17 +1967,28 @@ function renderUnitTraining(unit, stats) {
       { name: "material", label: "Material", placeholder: "Manual, vídeo, apresentação" },
       { name: "attachments", label: "Anexos", placeholder: "Link ou nome do arquivo" },
     ], "Adicionar treinamento")}
-    ${renderGenericTable(
-    ["Nome", "Data", "Instrutor", "Participantes", "Carga horária", "Certificado", "Status", "Presença", "Material", "Anexos"],
-    rows,
-    (item) => [item.name, formatDate(item.date), item.instructor, item.participants, item.workload, item.certificate, item.status, item.attendance, item.material, item.attachments || "Sem anexo"],
-    "Nenhum treinamento mapeado"
-  )}
+    ${renderEditableOperationalTable("trainings", rows, [
+      { key: "name", label: "Nome", type: "text", minWidth: 240 },
+      { key: "date", label: "Data", type: "date" },
+      { key: "instructor", label: "Instrutor", type: "text" },
+      { key: "participants", label: "Participantes", type: "text", minWidth: 210 },
+      { key: "workload", label: "Carga horária", type: "text", minWidth: 120 },
+      { key: "certificate", label: "Certificado", type: "select", options: ["Pendente", "Liberado", "Não aplicável"] },
+      { key: "status", label: "Status", type: "status", options: ["Pendente", "Em Andamento", "Concluído"] },
+      { key: "attendance", label: "Presença", type: "text" },
+      { key: "material", label: "Material", type: "text", minWidth: 220 },
+      { key: "attachments", label: "Anexos", type: "text", minWidth: 220 },
+    ], "Nenhum treinamento mapeado")}
   `;
 }
 
 function renderUnitMeetings(unit, stats) {
-  const manualRows = customRecords(unit, "meetings").map((record) => ({
+  const manualRows = customRecords(unit, "meetings").filter((record) => !record.hidden).map((record) => ({
+    id: record.id,
+    recordId: record.id,
+    unitId: unit.id,
+    recordType: "meetings",
+    manual: true,
     date: record.date || "",
     participants: record.participants || unit.franchisee || "Franqueado",
     subject: record.subject || "Reunião de implantação",
@@ -1442,12 +2010,16 @@ function renderUnitMeetings(unit, stats) {
       { name: "attachments", label: "Anexos", placeholder: "Ata, gravação, arquivo" },
       { name: "history", label: "Histórico", type: "textarea", placeholder: "Decisões e encaminhamentos" },
     ], "Adicionar ata")}
-    ${renderGenericTable(
-    ["Data", "Participantes", "Assuntos", "Pendências", "Responsáveis", "Prazo", "Anexos", "Histórico"],
-    rows,
-    (item) => [formatDate(item.date), item.participants, item.subject, item.pending, item.owner, formatDate(item.deadline), item.attachments || "Sem anexo", item.history],
-    "Nenhuma ata mapeada"
-  )}
+    ${renderEditableOperationalTable("meetings", rows, [
+      { key: "date", label: "Data", type: "date" },
+      { key: "participants", label: "Participantes", type: "text", minWidth: 220 },
+      { key: "subject", label: "Assuntos", type: "text", minWidth: 260 },
+      { key: "pending", label: "Pendências", type: "text", minWidth: 260 },
+      { key: "owner", label: "Responsáveis", type: "text", minWidth: 190 },
+      { key: "deadline", label: "Prazo", type: "date" },
+      { key: "attachments", label: "Anexos", type: "text", minWidth: 220 },
+      { key: "history", label: "Histórico", type: "textarea", minWidth: 340 },
+    ], "Nenhuma ata mapeada")}
   `;
 }
 
@@ -1491,6 +2063,7 @@ function renderUnitPendencies(unit, stats) {
             <th>Status</th>
             <th>Anexo</th>
             <th>Observações</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -1507,9 +2080,10 @@ function renderUnitPendencies(unit, stats) {
                 <td>
                   <textarea class="pendency-note-input" data-pendency-note="${item.id}" rows="2" placeholder="Adicionar observação">${escapeHtml(getPendencyNotes(item))}</textarea>
                 </td>
+                <td>${recordActions(item)}</td>
               </tr>
             `;
-          }).join("") || `<tr><td colspan="7">${empty("Nenhuma pendência aberta")}</td></tr>`}
+          }).join("") || `<tr><td colspan="8">${empty("Nenhuma pendência aberta")}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1529,6 +2103,101 @@ function pendencyStatusSelect(item) {
       ${options.map((status) => `<option value="${escapeHtml(status)}"${current === status ? " selected" : ""}>${escapeHtml(status)}</option>`).join("")}
     </select>
   `;
+}
+
+function accreditationStatusSelect(item) {
+  const options = ["Pendente", "Em análise", "Em negociação", "Aprovado", "Fechado", "Reprovado", "Vazio"];
+  const current = item.status || "Pendente";
+  const mergedOptions = current && !options.includes(current) ? [...options, current] : options;
+  return `
+    <select class="${statusClass(current)} manual-status-select" data-accreditation-status aria-label="Status de ${escapeHtml(item.name || "credenciamento")}">
+      ${mergedOptions.map((status) => `<option value="${escapeHtml(status)}"${current === status ? " selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+    </select>
+  `;
+}
+
+function manualStatusSelect(item, options) {
+  const current = item.status || options[0] || "Pendente";
+  const mergedOptions = current && !options.includes(current) ? [...options, current] : options;
+  return `
+    <select class="${statusClass(current)} manual-status-select" data-manual-record-status="${item.id}" aria-label="Status de ${escapeHtml(item.name || item.title || "registro")}">
+      ${mergedOptions.map((status) => `<option value="${escapeHtml(status)}"${current === status ? " selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+    </select>
+  `;
+}
+
+function recordActions(item) {
+  if (!item.manual) return `<span class="record-source">Base</span>`;
+  return `<button class="link-button danger" data-delete-record="${item.id}" type="button">Excluir</button>`;
+}
+
+function accreditationActions(item) {
+  if (item.manual) return `<button class="link-button danger" data-delete-record="${item.id}" type="button">Excluir</button>`;
+  return `<button class="link-button danger" data-delete-accreditation data-accreditation-id="${escapeHtml(item.id)}" data-unit-id="${escapeHtml(item.unitId)}" data-procedure-id="${escapeHtml(item.procedureId)}" type="button">Excluir</button>`;
+}
+
+function renderEditableOperationalTable(recordType, rows, columns, emptyMessage) {
+  return `
+    <div class="table-wrap">
+      <table class="workspace-table compact-table operational-table">
+        <thead>
+          <tr>
+            ${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((item) => `
+            <tr data-operational-row="${escapeHtml(recordType)}" data-unit-id="${escapeHtml(item.unitId)}" data-record-id="${escapeHtml(item.recordId || item.id)}" data-manual="${item.manual ? "true" : "false"}">
+              ${columns.map((column) => `<td>${operationalField(item, column)}</td>`).join("")}
+              <td>${operationalActions(item)}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="${columns.length + 1}">${empty(emptyMessage)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="pendency-save-bar">
+      <span>As alterações desta aba só entram no sistema ao salvar.</span>
+      <button class="primary-button" data-save-operational="${escapeHtml(recordType)}" type="button">Salvar alterações</button>
+    </div>
+  `;
+}
+
+function operationalField(item, column) {
+  const value = item[column.key] || "";
+  const width = column.minWidth ? ` style="min-width:${column.minWidth}px"` : "";
+  const common = `data-operational-field="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.label)}"${width}`;
+
+  if (column.type === "textarea") {
+    return `<textarea class="table-textarea" ${common} rows="2">${escapeHtml(value)}</textarea>`;
+  }
+  if (column.type === "date") {
+    return `<input class="table-input" ${common} type="date" value="${escapeHtml(value)}" />`;
+  }
+  if (column.type === "status") {
+    const options = column.options || ["Pendente", "Em análise", "Aprovado", "Reprovado", "Concluído"];
+    const mergedOptions = value && !options.includes(value) ? [...options, value] : options;
+    return `
+      <select class="${statusClass(value || options[0])} manual-status-select" ${common}>
+        ${mergedOptions.map((option) => `<option value="${escapeHtml(option)}"${value === option ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+  if (column.type === "select") {
+    const options = column.options || [];
+    const mergedOptions = value && !options.includes(value) ? [...options, value] : options;
+    return `
+      <select class="table-input" ${common}>
+        ${mergedOptions.map((option) => `<option value="${escapeHtml(option)}"${value === option ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}
+      </select>
+    `;
+  }
+  return `<input class="table-input" ${common} type="text" value="${escapeHtml(value)}" />`;
+}
+
+function operationalActions(item) {
+  if (item.manual) return `<button class="link-button danger" data-delete-record="${escapeHtml(item.id)}" type="button">Excluir</button>`;
+  return `<button class="link-button danger" data-delete-operational data-unit-id="${escapeHtml(item.unitId)}" data-record-type="${escapeHtml(item.recordType)}" data-record-id="${escapeHtml(item.recordId || item.id)}" type="button">Excluir</button>`;
 }
 
 function getPendencyNotes(item) {
@@ -1578,6 +2247,184 @@ async function savePendencyChanges(button) {
   }
 }
 
+async function saveAccreditationChanges(button) {
+  const scope = button.closest(".unit-tab-panel") || app;
+  const rows = [...scope.querySelectorAll("[data-accreditation-row]")];
+  const updates = rows.map((row) => ({
+    id: row.dataset.accreditationId,
+    unitId: row.dataset.unitId,
+    procedureId: row.dataset.procedureId,
+    status: row.querySelector("[data-accreditation-status]")?.value || "Pendente",
+    requestDate: row.querySelector("[data-accreditation-request-date]")?.value || "",
+    approvalDate: row.querySelector("[data-accreditation-approval-date]")?.value || "",
+    owner: row.querySelector("[data-accreditation-owner]")?.value.trim() || "Credenciamento",
+    attachments: row.querySelector("[data-accreditation-attachments]")?.value.trim() || "Sem anexo",
+    notes: row.querySelector("[data-accreditation-notes]")?.value.trim() || "",
+  }));
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Salvando...";
+
+  try {
+    for (const item of updates) {
+      if (updateManualRecord(item.id, item)) continue;
+
+      setLocalAccreditationRecord(item);
+      if (supabaseEnabled && state.auth?.token) {
+        await supabaseRpc("update_accreditation_record", {
+          p_token: state.auth.token,
+          p_unit_id: item.unitId,
+          p_procedure_id: item.procedureId,
+          p_status: item.status,
+          p_request_date: item.requestDate || null,
+          p_approval_date: item.approvalDate || null,
+          p_owner_name: item.owner,
+          p_attachments: item.attachments,
+          p_notes: item.notes,
+        });
+      } else {
+        state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...item, hidden: false };
+      }
+    }
+    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível salvar os credenciamentos.");
+  }
+}
+
+async function deleteAccreditationRecord(button) {
+  const item = {
+    id: button.dataset.accreditationId,
+    unitId: button.dataset.unitId,
+    procedureId: button.dataset.procedureId,
+    hidden: true,
+  };
+
+  try {
+    setLocalAccreditationRecord(item);
+    state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...item };
+    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
+
+    if (supabaseEnabled && state.auth?.token) {
+      await supabaseRpc("delete_accreditation_record", {
+        p_token: state.auth.token,
+        p_unit_id: item.unitId,
+        p_procedure_id: item.procedureId,
+      });
+    }
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível excluir o credenciamento.");
+  }
+}
+
+function setLocalAccreditationRecord(item) {
+  const procedure = data.accreditation.procedures.find((entry) => entry.id === item.procedureId);
+  if (!procedure) return;
+
+  procedure.statuses ||= {};
+  procedure.details ||= {};
+  const current = procedure.details[item.unitId] || {};
+  procedure.details[item.unitId] = { ...current, ...item };
+  if (item.status) procedure.statuses[item.unitId] = item.status;
+  if (item.hidden) delete procedure.statuses[item.unitId];
+}
+
+async function saveOperationalChanges(recordType, button) {
+  const scope = button.closest(".unit-tab-panel") || app;
+  const rows = [...scope.querySelectorAll(`[data-operational-row="${recordType}"]`)];
+  const updates = rows.map((row) => {
+    const values = {};
+    row.querySelectorAll("[data-operational-field]").forEach((field) => {
+      values[field.dataset.operationalField] = typeof field.value === "string" ? field.value.trim() : field.value;
+    });
+    return {
+      unitId: row.dataset.unitId,
+      recordType,
+      recordId: row.dataset.recordId,
+      manual: row.dataset.manual === "true",
+      values,
+    };
+  });
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Salvando...";
+
+  try {
+    for (const item of updates) {
+      if (item.manual) {
+        updateManualRecord(item.recordId, item.values);
+        continue;
+      }
+
+      setLocalOperationalRecord({ ...item, hidden: false });
+      if (supabaseEnabled && state.auth?.token) {
+        await supabaseRpc("update_unit_operational_record", {
+          p_token: state.auth.token,
+          p_unit_id: item.unitId,
+          p_record_type: item.recordType,
+          p_record_id: item.recordId,
+          p_payload: item.values,
+        });
+      }
+    }
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível salvar as alterações.");
+  }
+}
+
+async function deleteOperationalRecord(button) {
+  const item = {
+    unitId: button.dataset.unitId,
+    recordType: button.dataset.recordType,
+    recordId: button.dataset.recordId,
+    values: {},
+    hidden: true,
+  };
+
+  try {
+    setLocalOperationalRecord(item);
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+
+    if (supabaseEnabled && state.auth?.token) {
+      await supabaseRpc("delete_unit_operational_record", {
+        p_token: state.auth.token,
+        p_unit_id: item.unitId,
+        p_record_type: item.recordType,
+        p_record_id: item.recordId,
+      });
+    }
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível excluir este registro.");
+  }
+}
+
+function setLocalOperationalRecord(item) {
+  const key = operationalKey(item.unitId, item.recordType, item.recordId);
+  const current = data.operationalRecordsByKey?.[key] || state.operationalOverrides[key] || {};
+  const next = {
+    ...current,
+    unitId: item.unitId,
+    recordType: item.recordType,
+    recordId: item.recordId,
+    ...(item.values || {}),
+    hidden: item.hidden ?? false,
+  };
+  state.operationalOverrides[key] = next;
+  data.operationalRecordsByKey ||= {};
+  data.operationalRecordsByKey[key] = next;
+}
+
 function updateManualRecord(recordId, patch) {
   let updated = false;
   for (const unitRecords of Object.values(state.unitRecords)) {
@@ -1591,6 +2438,22 @@ function updateManualRecord(recordId, patch) {
   }
   if (updated) writeStorage("franchiseUnitRecords", state.unitRecords);
   return updated;
+}
+
+function deleteManualRecord(recordId) {
+  let deleted = false;
+  for (const unitRecords of Object.values(state.unitRecords)) {
+    for (const [type, records] of Object.entries(unitRecords || {})) {
+      const nextRecords = records.filter((item) => item.id !== recordId);
+      if (nextRecords.length !== records.length) {
+        unitRecords[type] = nextRecords;
+        deleted = true;
+      }
+    }
+  }
+  if (!deleted) return;
+  writeStorage("franchiseUnitRecords", state.unitRecords);
+  render();
 }
 
 function customRecords(unit, type) {
@@ -1645,11 +2508,20 @@ function renderGenericTable(headers, rows, mapRow, emptyMessage) {
       <table class="workspace-table compact-table">
         <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
         <tbody>
-          ${rows.map((row) => `<tr>${mapRow(row).map((cell, index) => `<td>${index === 0 ? `<span class="row-title">${escapeHtml(cell)}</span>` : escapeHtml(cell)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${headers.length}">${empty(emptyMessage)}</td></tr>`}
+          ${rows.map((row) => `<tr>${mapRow(row).map((cell, index) => `<td>${tableCellContent(cell, index)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${headers.length}">${empty(emptyMessage)}</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+}
+
+function htmlCell(html) {
+  return { html };
+}
+
+function tableCellContent(cell, index) {
+  if (cell && typeof cell === "object" && Object.prototype.hasOwnProperty.call(cell, "html")) return cell.html;
+  return index === 0 ? `<span class="row-title">${escapeHtml(cell)}</span>` : escapeHtml(cell);
 }
 
 function renderAlerts(alerts) {
@@ -1702,11 +2574,32 @@ function accreditationSummary(rows) {
 }
 
 function accreditationForUnit(unit) {
-  return data.accreditation.procedures.map((procedure) => ({
-    group: procedure.group,
-    name: procedure.name,
-    status: procedure.statuses[unit.id] || "",
-  }));
+  return data.accreditation.procedures
+    .map((procedure) => {
+      const id = accreditationRecordId(unit.id, procedure.id);
+      const saved = procedure.details?.[unit.id] || {};
+      const override = state.accreditationOverrides[id] || {};
+      const item = {
+        id,
+        unitId: unit.id,
+        procedureId: procedure.id,
+        group: procedure.group,
+        name: procedure.name,
+        status: override.status ?? saved.status ?? procedure.statuses?.[unit.id] ?? "",
+        requestDate: override.requestDate ?? saved.requestDate ?? "",
+        approvalDate: override.approvalDate ?? saved.approvalDate ?? "",
+        owner: override.owner ?? saved.owner ?? unit.owner ?? unit.ownerName ?? "Credenciamento",
+        attachments: override.attachments ?? saved.attachments ?? "Sem anexo",
+        notes: override.notes ?? saved.notes ?? saved.status ?? procedure.statuses?.[unit.id] ?? "Aguardando atualização",
+        hidden: override.hidden ?? saved.hidden ?? false,
+      };
+      return item;
+    })
+    .filter((item) => !item.hidden);
+}
+
+function accreditationRecordId(unitId, procedureId) {
+  return `${unitId}::${procedureId}`;
 }
 
 function pendingByUnitChart(units) {
@@ -1732,17 +2625,18 @@ function pendingByUnitChart(units) {
 
 function statusDistributionChart(done, inProgress, pending) {
   const total = Math.max(1, done + inProgress + pending);
+  const donePercent = (done / total) * 100;
+  const progressPercent = (inProgress / total) * 100;
+  const progressStop = donePercent + progressPercent;
   return `
-    <div class="status-split">
-      <div class="stacked-bar tall">
-        <span class="done" style="--value:${(done / total) * 100}%"></span>
-        <span class="progress" style="--value:${(inProgress / total) * 100}%"></span>
-        <span class="pending" style="--value:${(pending / total) * 100}%"></span>
+    <div class="donut-chart-layout">
+      <div class="donut-chart" style="--done-stop:${donePercent}%;--progress-stop:${progressStop}%" role="img" aria-label="${done} concluídas, ${inProgress} em andamento e ${pending} pendentes">
+        <div><strong>${done + inProgress + pending}</strong><span>etapas</span></div>
       </div>
-      <div class="badge-row">
-        ${statusBadge(`${done} concluídas`, "done")}
-        ${statusBadge(`${inProgress} em andamento`, "progress")}
-        ${statusBadge(`${pending} pendentes`, "pending")}
+      <div class="donut-legend">
+        <div class="done"><span></span><p><strong>Concluídas</strong><small>${done} · ${Math.round(donePercent)}%</small></p></div>
+        <div class="progress"><span></span><p><strong>Em andamento</strong><small>${inProgress} · ${Math.round(progressPercent)}%</small></p></div>
+        <div class="pending"><span></span><p><strong>Pendentes</strong><small>${pending} · ${Math.round((pending / total) * 100)}%</small></p></div>
       </div>
     </div>
   `;
@@ -2064,11 +2958,17 @@ function phaseProgress(phase, tasks) {
 }
 
 function kpi(label, value, detail) {
+  const normalized = normalizeText(label);
+  let tone = "info";
+  if (normalized.includes("progresso") || normalized.includes("concluido")) tone = "done";
+  else if (normalized.includes("pendencia") || normalized.includes("risco")) tone = "pending";
+  else if (normalized.includes("documento") || normalized.includes("tempo")) tone = "progress";
   return `
-    <section class="panel kpi">
+    <section class="panel kpi kpi-${tone}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(String(value))}</strong>
       <small>${escapeHtml(detail)}</small>
+      <div class="kpi-segments" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     </section>
   `;
 }
@@ -2117,9 +3017,14 @@ function statusBadge(label, forcedClass) {
 }
 
 function statusClass(status) {
-  if (status === "Concluído" || status.includes("conclu")) return "done";
-  if (status === "Em Andamento" || status.includes("andamento")) return "progress";
-  if (status === "Pendente" || status.includes("pend")) return "pending";
+  const value = normalizeText(status);
+  if (value.includes("conclu") || value.includes("aprov") || value.includes("fechado")) return "done";
+  if (value.includes("andamento")) return "progress";
+  if (value.includes("analise")) return "review";
+  if (value.includes("negociacao")) return "negotiation";
+  if (value.includes("reprov") || value.includes("recus")) return "rejected";
+  if (value.includes("vazio") || value.includes("sem status")) return "empty-status";
+  if (value.includes("pend")) return "pending";
   return "info";
 }
 
@@ -2210,6 +3115,51 @@ async function createNewDraft() {
   render();
 }
 
+async function deleteFranchiseUnit(unitId) {
+  const unit = allUnits().find((item) => item.id === unitId);
+  if (!unit) return;
+  const confirmed = window.confirm(`Excluir a franquia ${unit.name || unit.city}? Esta ação remove a pasta digital e os dados vinculados a esta unidade.`);
+  if (!confirmed) return;
+
+  try {
+    if (supabaseEnabled && state.auth?.token && !unitId.startsWith("draft-")) {
+      await supabaseRpc("delete_franchise_unit", {
+        p_token: state.auth.token,
+        p_unit_id: unitId,
+      });
+    }
+
+    data.units = data.units.filter((item) => item.id !== unitId);
+    data.accreditation.units = (data.accreditation.units || []).filter((item) => item.id !== unitId);
+    state.drafts = state.drafts.filter((item) => item.id !== unitId);
+    delete state.unitRecords[unitId];
+    delete state.unitTabs[unitId];
+
+    Object.keys(state.operationalOverrides).forEach((key) => {
+      if (key.startsWith(`${unitId}::`)) delete state.operationalOverrides[key];
+    });
+    Object.keys(state.accreditationOverrides).forEach((key) => {
+      if (key.startsWith(`${unitId}::`)) delete state.accreditationOverrides[key];
+    });
+    data.accreditation.procedures.forEach((procedure) => {
+      delete procedure.statuses?.[unitId];
+      delete procedure.details?.[unitId];
+    });
+
+    writeStorage("franchiseDrafts", state.drafts);
+    writeStorage("franchiseUnitRecords", state.unitRecords);
+    writeStorage("franchiseUnitTabs", state.unitTabs);
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
+
+    if (state.franchiseWorkspaceUnitId === unitId) state.franchiseWorkspaceUnitId = "";
+    if (state.selectedUnitId === unitId) state.selectedUnitId = data.units[0]?.id || state.drafts[0]?.id || "";
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível excluir a franquia.");
+  }
+}
+
 function addUnitRecord(button) {
   const form = button.closest("[data-unit-record-form]");
   if (!form) return;
@@ -2221,8 +3171,9 @@ function addUnitRecord(button) {
     values[field.name] = typeof field.value === "string" ? field.value.trim() : field.value;
   });
 
-  if (!Object.values(values).some(Boolean)) {
-    alert("Preencha ao menos um campo antes de adicionar.");
+  const requiredField = primaryRecordField(recordType);
+  if (!values[requiredField]) {
+    alert(`Preencha ${primaryRecordLabel(recordType)} antes de adicionar.`);
     return;
   }
 
@@ -2238,6 +3189,26 @@ function addUnitRecord(button) {
   ];
   writeStorage("franchiseUnitRecords", state.unitRecords);
   render();
+}
+
+function primaryRecordField(recordType) {
+  return {
+    accreditations: "name",
+    documents: "name",
+    trainings: "name",
+    meetings: "subject",
+    pendencies: "title",
+  }[recordType] || "name";
+}
+
+function primaryRecordLabel(recordType) {
+  return {
+    accreditations: "o tipo de credenciamento",
+    documents: "o nome do documento",
+    trainings: "o nome do treinamento",
+    meetings: "o assunto da ata",
+    pendencies: "a pendência",
+  }[recordType] || "o campo principal";
 }
 
 function exportCurrentView() {

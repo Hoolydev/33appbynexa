@@ -3,403 +3,160 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Nexa | Gestão Integrada</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>33Doctor APP | Desenvolvido pela Nexa</title>
+    <link rel="stylesheet" href="./styles.css?v=20260712k" />
   </head>
   <body>
     <section id="landing-screen" class="landing-screen">
       <header class="landing-nav">
-        <div class="brand landing-brand">
-          <img class="brand-lockup landing-brand-lockup" src="./assets/nexa-logo-white.svg" alt="Nexa - conectando pessoas e transformando resultados" />
-        </div>
+        <a class="landing-brand" href="#inicio" aria-label="33Doctor Plataforma de Gestão do Franqueado">
+          <span class="brand-platform-lockup">
+            <span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span>
+            <small>Plataforma de Gestão do Franqueado</small>
+          </span>
+        </a>
         <nav aria-label="Navegação da landing page">
-          <a href="#servicos">Serviços</a>
-          <a href="#metodologia">Metodologia</a>
-          <a href="#essencia">Essência</a>
-          <button class="landing-login-button" data-open-login type="button">Entrar</button>
+          <a href="#plataforma">Plataforma</a>
+          <a href="#modulos">Módulos</a>
+          <a href="#operacao">Como funciona</a>
+          <button class="landing-login-button" data-open-login type="button">Acessar sistema</button>
         </nav>
       </header>
 
       <main>
-        <section class="landing-hero">
-          <div class="hero-motion" aria-hidden="true">
-            <div class="motion-grid"></div>
-            <div class="motion-glow glow-one"></div>
-            <div class="motion-glow glow-two"></div>
-            <div class="motion-glow glow-three"></div>
-            <div class="screen-cloud">
-              <article class="float-screen screen-main">
-                <div class="screen-toolbar">
-                  <span></span>
-                  <span></span>
-                  <strong>Gestão Integrada</strong>
-                </div>
-                <div class="screen-body">
-                  <aside class="screen-sidebar">
-                    <i></i>
-                    <b></b>
-                    <b></b>
-                    <b></b>
-                    <b></b>
-                  </aside>
-                  <div class="screen-content">
-                    <div class="screen-header-row">
-                      <span>Empresa cliente - Operação integrada</span>
-                      <strong>78%</strong>
-                    </div>
-                    <div class="screen-metrics">
-                      <span><b>12</b><small>áreas</small></span>
-                      <span><b>86</b><small>indicadores</small></span>
-                      <span><b>4</b><small>ciclos</small></span>
-                    </div>
-                    <div class="screen-timeline">
-                      <div class="timeline-row"><i>Diagnóstico</i><b></b><b></b><em></em><strong></strong></div>
-                      <div class="timeline-row"><i>Processos</i><b></b><em></em><b></b><strong></strong></div>
-                      <div class="timeline-row"><i>Equipe</i><em></em><b></b><b></b><strong></strong></div>
-                      <div class="timeline-row"><i>Evolução</i><b></b><b></b><em></em><strong></strong></div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-
-              <article class="float-screen screen-dashboard">
-                <div class="screen-toolbar">
-                  <span></span>
-                  <span></span>
-                  <strong>Dashboard</strong>
-                </div>
-                <div class="dashboard-mini">
-                  <div class="donut"></div>
-                  <div>
-                    <strong>Indicadores</strong>
-                    <b style="--w: 86%"></b>
-                    <b style="--w: 62%"></b>
-                    <b style="--w: 44%"></b>
-                  </div>
-                </div>
-              </article>
-
-              <article class="float-screen screen-list">
-                <div class="screen-toolbar"><strong>Áreas conectadas</strong></div>
-                <ul>
-                  <li><span>RH</span><b>Pessoas</b><em>88%</em></li>
-                  <li><span>FIN</span><b>Financeiro</b><em>74%</em></li>
-                  <li><span>TEC</span><b>Tecnologia</b><em>69%</em></li>
-                  <li><span>QLD</span><b>Qualidade</b><em>91%</em></li>
-                </ul>
-              </article>
-
-              <article class="float-screen screen-kanban">
-                <div class="screen-toolbar"><strong>Qualidade</strong></div>
-                <div class="kanban-mini">
-                  <span><i>Manual</i><b></b><b></b></span>
-                  <span><i>Equipe</i><b></b><b></b></span>
-                  <span><i>Vistoria</i><b></b><b></b></span>
-                </div>
-              </article>
-
-              <article class="float-screen screen-finance">
-                <div class="screen-toolbar"><strong>People Analytics</strong></div>
-                <div class="purchase-mini">
-                  <span><b></b><i></i></span>
-                  <span><b></b><i></i></span>
-                  <span><b></b><i></i></span>
-                </div>
-              </article>
-
-              <article class="float-screen screen-blur screen-left">
-                <span></span><span></span><span></span>
-              </article>
-              <article class="float-screen screen-blur screen-right">
-                <span></span><span></span><span></span>
-              </article>
-              <article class="float-screen screen-blur screen-bottom">
-                <span></span><span></span><span></span>
-              </article>
-            </div>
-            <div class="motion-sheen"></div>
-          </div>
+        <section id="inicio" class="landing-hero">
           <div class="hero-copy">
-            <p class="hero-kicker">NEXA · Consultoria empresarial integrada</p>
-            <h1>Transformamos empresas de dentro para fora.</h1>
+            <p class="hero-kicker">Ambiente exclusivo do franqueado 33Doctor</p>
+            <h1>Sua franquia no controle. Sua operação pronta para crescer.</h1>
             <p>
-              Desde 2020, a Nexa desenvolve empresas por meio de uma metodologia exclusiva, atuando diretamente na estrutura interna do negócio para construir processos sólidos, equipes de alta performance e gestão estratégica.
+              Acompanhe a implantação, organize sua equipe, cumpra as entregas da unidade e tome decisões com o suporte da franqueadora em cada etapa.
             </p>
             <div class="hero-actions">
               <button class="hero-primary" data-open-login type="button">Entrar na plataforma</button>
-              <a class="hero-secondary" href="#servicos">Conhecer serviços</a>
+              <a class="hero-secondary" href="#modulos">Conhecer os módulos</a>
+            </div>
+            <div class="hero-proof">
+              <span><strong>01</strong> Direcionamento da franqueadora</span>
+              <span><strong>02</strong> Rotina da unidade organizada</span>
+              <span><strong>03</strong> Gestão com indicadores</span>
             </div>
           </div>
-        </section>
 
-        <section id="proposito" class="landing-band">
-          <div class="section-heading">
-            <span>Empresa dentro da sua empresa</span>
-            <h2>Nossa atuação vai além da consultoria tradicional.</h2>
-          </div>
-          <div class="value-grid">
-            <article>
-              <span>01</span>
-              <h3>Diagnóstico profundo</h3>
-              <p>Integramos nossa equipe à sua operação, entendemos sua cultura e identificamos oportunidades reais de evolução.</p>
+          <div class="hero-visual" aria-label="Profissional médico usando a plataforma 33Doctor">
+            <img src="./assets/33doctor-hero.webp" alt="Médico com tablet em ambiente clínico moderno" />
+            <article class="hero-float-card hero-progress-card">
+              <span>Implantação da unidade</span>
+              <strong>68%</strong>
+              <div><i style="--progress:68%"></i></div>
+              <small>24 etapas concluídas</small>
             </article>
-            <article>
-              <span>02</span>
-              <h3>Estruturação interna</h3>
-              <p>Construímos processos sólidos, gestão por indicadores, rotinas claras e equipes preparadas para executar melhor.</p>
+            <article class="hero-float-card hero-network-card">
+              <span>Visão da rede</span>
+              <strong>Todos os módulos</strong>
+              <small>Negócios · RH · DP · Contábil · Financeiro</small>
             </article>
-            <article>
-              <span>03</span>
-              <h3>Crescimento sustentável</h3>
-              <p>Implementamos soluções ao lado da equipe para gerar melhoria contínua, previsibilidade e resultado mensurável.</p>
+            <article class="hero-float-card hero-alert-card">
+              <b>3</b>
+              <span><strong>Pendências prioritárias</strong><small>Acompanhamento centralizado</small></span>
             </article>
           </div>
         </section>
 
-        <section id="servicos" class="modules-section services-section">
-          <div class="section-heading">
-            <span>Nossos Serviços</span>
-            <h2>Conectamos áreas que muitas empresas ainda tratam de forma isolada.</h2>
+        <section id="plataforma" class="landing-intro">
+          <div class="landing-section-heading centered">
+            <span>33Doctor APP</span>
+            <h2>A franqueadora orienta. Você acompanha, executa e evolui.</h2>
+            <p>Enquanto a 33Doctor amplia o acesso a consultas e exames particulares com valores mais acessíveis, o app oferece a estrutura para o franqueado operar esse propósito com padrão e previsibilidade.</p>
           </div>
-          <div class="service-grid">
-            <article class="active">
-              <strong>Gestão Estratégica de RH</strong>
-              <ul>
-                <li>Estruturação completa do RH</li>
-                <li>RH estratégico, cargos e salários</li>
-                <li>Cultura, clima e desempenho</li>
-                <li>People Analytics e KPIs</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Recrutamento & Seleção</strong>
-              <ul>
-                <li>Hunting e recrutamento estratégico</li>
-                <li>Seleção por competências</li>
-                <li>Testes comportamentais</li>
-                <li>Onboarding, assessment e executive search</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Business Partner</strong>
-              <ul>
-                <li>Parceiro estratégico da liderança</li>
-                <li>Desenvolvimento de gestores</li>
-                <li>Gestão de conflitos e mudanças</li>
-                <li>Planejamento organizacional e sucessão</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Departamento Pessoal</strong>
-              <ul>
-                <li>Admissão, desligamento e folha</li>
-                <li>Benefícios, ponto, férias e 13º</li>
-                <li>eSocial e obrigações trabalhistas</li>
-                <li>Auditoria trabalhista</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Financeiro</strong>
-              <ul>
-                <li>Estruturação financeira</li>
-                <li>Fluxo de caixa</li>
-                <li>Contas a pagar e receber</li>
-                <li>Indicadores, custos e orçamento</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Controladoria</strong>
-              <ul>
-                <li>Governança corporativa</li>
-                <li>Compliance e auditoria de processos</li>
-                <li>Dashboards gerenciais</li>
-                <li>Gestão de riscos e indicadores estratégicos</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Qualidade</strong>
-              <ul>
-                <li>Mapeamento e padronização</li>
-                <li>POPs, fluxogramas e manuais</li>
-                <li>Auditorias e melhoria contínua</li>
-                <li>Gestão da qualidade</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Treinamentos Corporativos</strong>
-              <ul>
-                <li>Academia de Líderes</li>
-                <li>Desenvolvimento de equipes</li>
-                <li>Comunicação, feedback e vendas</li>
-                <li>Cultura e integração de colaboradores</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Tecnologia & Programação</strong>
-              <ul>
-                <li>Sistemas e softwares personalizados</li>
-                <li>Automação de processos</li>
-                <li>Dashboards, BI e integrações</li>
-                <li>IA aplicada aos negócios</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Consultoria Empresarial</strong>
-              <ul>
-                <li>Planejamento estratégico</li>
-                <li>Estruturação organizacional</li>
-                <li>Redesenho de processos</li>
-                <li>Expansão, governança e modelagem operacional</li>
-              </ul>
-            </article>
-            <article>
-              <strong>Marketing e Comercial</strong>
-              <ul>
-                <li>Estruturação comercial</li>
-                <li>Processos de vendas e CRM</li>
-                <li>Gestão de metas</li>
-                <li>Indicadores e estratégias de crescimento</li>
-              </ul>
-            </article>
+          <div class="landing-highlight-grid">
+            <article><strong>Implantação assistida</strong><p>Saiba o que já foi concluído, quais são os próximos passos e o que depende da sua unidade.</p></article>
+            <article><strong>Rotina sem dispersão</strong><p>Responsáveis, prazos, documentos e pendências organizados no ambiente da sua franquia.</p></article>
+            <article><strong>Suporte mais próximo</strong><p>A franqueadora acompanha a operação e direciona sua equipe com informações atualizadas.</p></article>
           </div>
         </section>
 
-        <section id="metodologia" class="landing-band methodology-section">
-          <div class="section-heading">
-            <span>Nossa Metodologia</span>
-            <h2>Não entregamos apenas diagnósticos ou relatórios. Vivemos a rotina da sua organização.</h2>
+        <section id="modulos" class="landing-modules">
+          <div class="landing-section-heading">
+            <span>Ecossistema modular</span>
+            <h2>Da implantação à gestão diária da sua unidade.</h2>
           </div>
-          <div class="method-grid">
-            <article>
-              <strong>Diagnosticar</strong>
-              <p>Entender cultura, operação, gargalos e oportunidades com profundidade.</p>
-            </article>
-            <article>
-              <strong>Estruturar</strong>
-              <p>Desenhar processos, indicadores, papéis, rituais de gestão e prioridades.</p>
-            </article>
-            <article>
-              <strong>Implementar</strong>
-              <p>Colocar as soluções em prática ao lado da equipe, dentro da rotina real.</p>
-            </article>
-            <article>
-              <strong>Acompanhar</strong>
-              <p>Monitorar indicadores, ajustar execução e fortalecer a liderança.</p>
-            </article>
-            <article>
-              <strong>Evoluir</strong>
-              <p>Promover mudanças sustentáveis, mensuráveis e conectadas ao crescimento.</p>
-            </article>
+          <div class="landing-module-grid">
+            <article class="featured"><span>01</span><strong>Negócios e Implantação</strong><p>Roadmap, compras, documentos, pendências, credenciamentos e inauguração.</p><em>Ativo por padrão</em></article>
+            <article><span>02</span><strong>Recursos Humanos</strong><p>Vagas, candidatos, triagem, entrevistas e inteligência aplicada à seleção.</p><em>Sob ativação</em></article>
+            <article><span>03</span><strong>Departamento Pessoal</strong><p>Colaboradores, admissões, folha, benefícios, férias e obrigações.</p><em>Sob ativação</em></article>
+            <article><span>04</span><strong>Contabilidade</strong><p>Documentos fiscais, competências, guias, conferências e devolutivas.</p><em>Sob ativação</em></article>
+            <article><span>05</span><strong>Financeiro</strong><p>Contas, fluxo de caixa, orçamento, conciliação e indicadores.</p><em>Sob ativação</em></article>
           </div>
         </section>
 
-        <section class="why-section">
-          <div class="section-heading">
-            <span>Por que escolher a Nexa?</span>
-            <h2>Estratégia e operação caminhando juntas.</h2>
-          </div>
-          <div class="why-list">
-            <span>Mais de 6 anos transformando empresas</span>
-            <span>Equipe multidisciplinar especializada</span>
-            <span>Soluções personalizadas</span>
-            <span>Atuação estratégica e operacional</span>
-            <span>Foco em resultados</span>
-            <span>Gestão baseada em indicadores</span>
-            <span>Implantação completa dos processos</span>
-            <span>Acompanhamento contínuo</span>
-            <span>Tecnologia, pessoas e gestão integradas</span>
-          </div>
-        </section>
-
-        <section id="essencia" class="essence-section">
-          <div class="section-heading">
-            <span>Nossa essência</span>
-            <h2>Nexa. Onde conexões geram resultados.</h2>
-          </div>
-          <div class="essence-grid">
-            <article>
-              <strong>Missão</strong>
-              <p>Conectar pessoas, processos e estratégias para impulsionar o crescimento sustentável das empresas.</p>
-            </article>
-            <article>
-              <strong>Visão</strong>
-              <p>Ser referência nacional em consultoria empresarial integrada, reconhecida por transformar organizações por meio de conexões estratégicas e resultados consistentes.</p>
-            </article>
-            <article>
-              <strong>Propósito</strong>
-              <p>Transformar empresas criando conexões que fortalecem pessoas, estruturam processos, impulsionam a gestão e promovem crescimento sustentável.</p>
-            </article>
-          </div>
-          <div class="brand-concept">
-            <h3>Conceito da marca</h3>
-            <p>
-              Nexa deriva da ideia de nexo e conexão: unir o que muitas empresas tratam de forma isolada. RH, financeiro, controladoria, tecnologia, qualidade, estratégia e liderança fazem parte de um único sistema. Quando essas áreas estão conectadas, o negócio cresce com mais eficiência, segurança e resultados.
-            </p>
-            <div class="values-list">
-              <span>Conexão</span>
-              <span>Ética</span>
-              <span>Inovação</span>
-              <span>Excelência</span>
-              <span>Transparência</span>
-              <span>Comprometimento</span>
-              <span>Desenvolvimento humano</span>
-              <span>Foco em resultados</span>
-              <span>Colaboração</span>
+        <section id="operacao" class="landing-operation">
+          <div class="operation-preview" aria-label="Visão geral do painel 33Doctor">
+            <header><span class="mini-logo">33</span><strong>Painel da rede</strong><small>Visão geral</small></header>
+            <div class="operation-metrics">
+              <article><span>Franquias</span><strong>12</strong><small>rede ativa</small></article>
+              <article><span>Progresso médio</span><strong>74%</strong><small>implantação</small></article>
+              <article><span>Pendências</span><strong>18</strong><small>ação necessária</small></article>
+            </div>
+            <div class="operation-chart">
+              <div><span>Unidade Centro</span><i><b style="--progress:84%"></b></i><strong>84%</strong></div>
+              <div><span>Unidade Norte</span><i><b style="--progress:67%"></b></i><strong>67%</strong></div>
+              <div><span>Unidade Sul</span><i><b style="--progress:51%"></b></i><strong>51%</strong></div>
             </div>
           </div>
+          <div class="operation-copy">
+            <span>Da abertura à rotina</span>
+            <h2>Você sabe o que fazer, quando fazer e quem precisa agir.</h2>
+            <p>O 33Doctor APP transforma as orientações da franqueadora em uma rotina clara para sua unidade, sinalizando riscos e mantendo responsáveis, prazos e documentos no mesmo fluxo.</p>
+            <ol>
+              <li><b>1</b><span><strong>Acompanhe</strong><small>Veja o andamento de cada franquia.</small></span></li>
+              <li><b>2</b><span><strong>Direcione</strong><small>Defina responsáveis e prioridades.</small></span></li>
+              <li><b>3</b><span><strong>Evolua</strong><small>Ative novos módulos conforme a necessidade.</small></span></li>
+            </ol>
+          </div>
         </section>
 
-        <section id="lideranca" class="founder-section founder-authority">
-          <div class="founder-content">
-            <span class="founder-label">Autoridade por trás da Nexa</span>
-            <h2>Gerida e idealizada por uma especialista em pessoas.</h2>
-            <p>
-              Danielle Lacerda une anos de consultoria empresarial, visão humana e disciplina operacional para transformar empresas por meio de pessoas, processos, indicadores e gestão estratégica.
-            </p>
-            <div class="authority-metrics">
-              <article>
-                <strong>Pessoas</strong>
-                <span>gestão com cultura, liderança e propósito</span>
-              </article>
-              <article>
-                <strong>Processos</strong>
-                <span>rotinas, padrões e execução monitorada</span>
-              </article>
-              <article>
-                <strong>Resultado</strong>
-                <span>consultoria empresarial aplicada ao crescimento</span>
-              </article>
-            </div>
-          </div>
-          <aside class="authority-card">
-            <span>Founder & gestão</span>
-            <h3>Danielle Lacerda</h3>
-            <p>Especialista em Pessoas. Consultoria empresarial com foco em execução, qualidade, desenvolvimento humano e negócios que precisam crescer com estrutura.</p>
-            <a class="founder-link" href="https://www.linkedin.com/in/danielle-lacerda-5b8700221/" target="_blank" rel="noreferrer">
-              Ver perfil no LinkedIn
-            </a>
-          </aside>
+        <section class="landing-security">
+          <div><span>Um ambiente para cada franqueado</span><strong>Sua unidade, seus dados e sua equipe.</strong></div>
+          <p>Perfis por função, módulos liberados pela franqueadora e visualização restrita às informações da sua operação.</p>
+        </section>
+
+        <section class="landing-cta">
+          <span>33Doctor APP</span>
+          <h2>Entre no ambiente da sua franquia e conduza a operação com mais segurança.</h2>
+          <button class="hero-primary" data-open-login type="button">Acessar minha conta</button>
         </section>
       </main>
+
+      <footer class="landing-footer">
+        <div><span class="brand-platform-lockup footer-brand-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span><p>Estrutura e acompanhamento para cada unidade operar o propósito 33Doctor com qualidade.</p></div>
+        <div class="footer-nexa"><span>Desenvolvido por</span><img src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" /></div>
+      </footer>
     </section>
 
     <section id="login-screen" class="login-screen"></section>
 
     <div id="app-shell" class="app-shell" hidden>
       <aside class="sidebar">
-        <div class="brand">
-          <img class="brand-lockup app-brand-lockup" src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" />
+        <div class="brand product-brand" aria-label="33Doctor APP, desenvolvido pela Nexa">
+          <span class="brand-platform-lockup app-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
         </div>
         <nav class="nav" aria-label="Navegação principal">
           <button class="nav-item active" data-view="dashboard" type="button">Dashboard</button>
           <button class="nav-item" data-view="franchises" type="button">Franquias</button>
-          <button class="nav-item" data-view="new-unit" type="button">Nova franquia</button>
+          <button class="nav-item" data-view="new-unit" data-platform-only type="button">Nova franquia</button>
+          <span class="nav-section-label">Módulos</span>
+          <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button">RH <small data-module-state="hr">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button">Departamento Pessoal <small data-module-state="dp">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="accounting" data-module-nav="accounting" type="button">Contabilidade <small data-module-state="accounting">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button">Financeiro <small data-module-state="finance">Bloqueado</small></button>
+          <span class="nav-section-label" data-platform-only>Gestão da plataforma</span>
+          <button class="nav-item" data-view="admin" data-platform-only type="button">Administração</button>
         </nav>
         <div class="profile-control sidebar-profile">
           <button id="profile-toggle" class="profile-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
             <span id="profile-avatar" class="profile-avatar">NX</span>
             <span>
-              <strong id="profile-chip-name">Usuário Nexa</strong>
+              <strong id="profile-chip-name">Usuário 33Doctor</strong>
               <small>Editar perfil</small>
             </span>
           </button>
@@ -431,11 +188,11 @@
         <header class="topbar">
           <div class="topbar-copy">
             <div class="topbar-kicker">
-              <span id="topbar-date">Nexa Gestão</span>
+              <span id="topbar-date">33Doctor APP</span>
             </div>
             <div class="topbar-user">
               <span id="topbar-avatar" class="profile-avatar hero-avatar">NX</span>
-              <h1>Olá, <span id="profile-name-display">Usuário Nexa</span>.</h1>
+              <h1>Olá, <span id="profile-name-display">Usuário 33Doctor</span>.</h1>
             </div>
             <p><span id="view-title">Dashboard</span> · gestão integrada de franquias, processos e indicadores.</p>
           </div>
@@ -443,7 +200,8 @@
             <div class="quick-menu" aria-label="Ações rápidas">
               <button class="quick-action" data-quick-view="dashboard" type="button">Dashboard</button>
               <button class="quick-action" data-quick-view="franchises" type="button">Franquias</button>
-              <button class="quick-action" data-quick-view="new-unit" type="button">Nova unidade</button>
+              <button class="quick-action" data-quick-view="new-unit" data-platform-only type="button">Nova unidade</button>
+              <button class="quick-action" data-quick-view="admin" data-platform-only type="button">Administração</button>
             </div>
             <label class="search-box">
               <span>Buscar</span>
@@ -459,6 +217,6 @@
 
     <script src="./supabase-config.js"></script>
     <script src="./data.js"></script>
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20260712n"></script>
   </body>
 </html>
