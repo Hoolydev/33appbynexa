@@ -307,28 +307,34 @@ function showLogin(message = "") {
   appShell.hidden = true;
   loginScreen.hidden = false;
   loginScreen.innerHTML = `
-    <form class="login-card" data-login-form>
-      <button class="login-close" data-close-login type="button" aria-label="Voltar para a apresentação">×</button>
-      <div class="brand product-brand login-product-brand" aria-label="33Doctor APP, desenvolvido pela Nexa">
-        <span class="brand-platform-lockup login-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
+    <div class="login-shell">
+      <form class="login-card" data-login-form>
+        <button class="login-close" data-close-login type="button" aria-label="Voltar para a apresentação">×</button>
+        <div class="brand product-brand login-product-brand" aria-label="33Doctor APP">
+          <span class="brand-platform-lockup login-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
+        </div>
+        <div>
+          <p class="eyebrow">Acesso restrito</p>
+          <h1>Entrar no sistema</h1>
+        </div>
+        ${message ? `<div class="login-alert">${escapeHtml(message)}</div>` : ""}
+        ${!supabaseEnabled ? `<div class="login-alert">Configure URL e anon key em supabase-config.js para habilitar o login.</div>` : ""}
+        <label>
+          <span>E-mail</span>
+          <input name="email" type="email" autocomplete="username" required ${!supabaseEnabled ? "disabled" : ""} />
+        </label>
+        <label>
+          <span>Senha</span>
+          <input name="password" type="password" autocomplete="current-password" required ${!supabaseEnabled ? "disabled" : ""} />
+        </label>
+        <button class="primary-button" type="submit" ${!supabaseEnabled ? "disabled" : ""}>Entrar</button>
+        <small>Conexão segura com criptografia de ponta a ponta.</small>
+      </form>
+      <div class="login-developed" aria-label="Desenvolvido pela Nexa">
+        <span>Desenvolvido pela</span>
+        <img src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" />
       </div>
-      <div>
-        <p class="eyebrow">Acesso restrito</p>
-        <h1>Entrar no sistema</h1>
-      </div>
-      ${message ? `<div class="login-alert">${escapeHtml(message)}</div>` : ""}
-      ${!supabaseEnabled ? `<div class="login-alert">Configure URL e anon key em supabase-config.js para habilitar o login.</div>` : ""}
-      <label>
-        <span>E-mail</span>
-        <input name="email" type="email" autocomplete="username" required ${!supabaseEnabled ? "disabled" : ""} />
-      </label>
-      <label>
-        <span>Senha</span>
-        <input name="password" type="password" autocomplete="current-password" required ${!supabaseEnabled ? "disabled" : ""} />
-      </label>
-      <button class="primary-button" type="submit" ${!supabaseEnabled ? "disabled" : ""}>Entrar</button>
-      <small>Conexão segura com criptografia de ponta a ponta.</small>
-    </form>
+    </div>
   `;
 }
 

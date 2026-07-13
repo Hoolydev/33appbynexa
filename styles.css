@@ -1380,6 +1380,13 @@ body {
     var(--page);
 }
 
+.login-shell {
+  display: grid;
+  width: min(420px, 100%);
+  justify-items: center;
+  gap: 22px;
+}
+
 .login-card {
   position: relative;
   display: grid;
@@ -1410,6 +1417,39 @@ body {
 .login-brand {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
+}
+
+.login-product-brand {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  padding-inline: 42px;
+  text-align: center;
+}
+
+.login-product-brand .brand-platform-lockup,
+.login-product-brand .brand-logo-crop {
+  justify-items: center;
+  margin-inline: auto;
+}
+
+.login-developed {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.login-developed span {
+  color: #7d8796;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.login-developed img {
+  width: 150px;
+  height: auto;
 }
 
 .login-card label {
