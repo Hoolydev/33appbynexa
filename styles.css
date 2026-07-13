@@ -3369,6 +3369,96 @@ select.empty-status:focus {
   outline: none;
 }
 
+.schedule-notes {
+  min-width: 300px;
+}
+
+.attachment-control {
+  display: grid;
+  gap: 7px;
+  min-width: 210px;
+}
+
+.attachment-picker {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+  text-transform: none;
+}
+
+.attachment-picker:hover,
+.attachment-picker:focus-within {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.attachment-picker.is-loading {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.attachment-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.attachment-picker span {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-control.has-file .attachment-picker {
+  border-style: solid;
+  background: rgba(31, 166, 116, 0.07);
+  color: var(--ink);
+}
+
+.attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.icon-text-button {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--navy);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  padding: 5px 9px;
+}
+
+.icon-text-button:hover {
+  border-color: var(--blue);
+}
+
+.icon-text-button.danger {
+  color: var(--red);
+}
+
+.icon-text-button[hidden] {
+  display: none;
+}
+
 .nowrap {
   white-space: nowrap;
 }
@@ -5637,6 +5727,19 @@ select.empty-status:focus {
 .app-shell.dark-theme .permission-banner {
   background: #202c33;
   color: #b7cbd3;
+}
+
+.app-shell.dark-theme .attachment-picker,
+.app-shell.dark-theme .icon-text-button,
+.app-shell.dark-theme .pendency-save-bar {
+  border-color: #343d46;
+  background: #1c232a;
+  color: #d5dce3;
+}
+
+.app-shell.dark-theme .attachment-control.has-file .attachment-picker {
+  background: rgba(31, 166, 116, 0.12);
+  color: #dcf7ed;
 }
 
 .app-shell .status-overview {

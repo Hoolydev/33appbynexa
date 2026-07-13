@@ -35,6 +35,8 @@ const state = {
 };
 
 const statusOptions = ["Concluído", "Em Andamento", "Pendente", "Sem status"];
+const storageReferencePrefix = "storage:";
+const localFileReferencePrefix = "local-file:";
 
 const app = document.querySelector("#app");
 const appShell = document.querySelector("#app-shell");
@@ -143,6 +145,12 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-status-id]")) {
     await updateStatus(target.dataset.statusId, target.value);
   }
+  if (target.matches("[data-schedule-status], [data-pendency-status]")) {
+    target.className = `${statusClass(target.value)} manual-status-select`;
+  }
+  if (target.matches("[data-file-upload]")) {
+    await handleFileUpload(target);
+  }
   if (target.matches("[data-manual-record-status]")) {
     updateManualRecord(target.dataset.manualRecordStatus, { status: target.value });
     render();
@@ -219,6 +227,21 @@ app.addEventListener("click", (event) => {
   const savePendencies = event.target.closest("[data-save-pendencies]");
   if (savePendencies) {
     savePendencyChanges(savePendencies);
+  }
+
+  const saveSchedule = event.target.closest("[data-save-schedule]");
+  if (saveSchedule) {
+    saveScheduleChanges(saveSchedule);
+  }
+
+  const openAttachment = event.target.closest("[data-open-attachment]");
+  if (openAttachment) {
+    openAttachmentFile(openAttachment);
+  }
+
+  const removeAttachment = event.target.closest("[data-remove-attachment]");
+  if (removeAttachment) {
+    removeAttachmentFile(removeAttachment);
   }
 
   const saveAccreditations = event.target.closest("[data-save-accreditations]");
@@ -481,6 +504,197 @@ async function supabaseRpc(functionName, body) {
   return payload;
 }
 
+async function storageRequest(endpoint, body) {
+  const response = await fetch(`/api/storage/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: state.auth?.token, ...body }),
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) throw new Error(payload?.error || payload?.message || "Não foi possível acessar o armazenamento.");
+  return payload;
+}
+
+function serializeFileReference(file) {
+  if (!file?.id) return `${localFileReferencePrefix}${encodeURIComponent(file?.name || "arquivo")}`;
+  return `${storageReferencePrefix}${file.id}:${encodeURIComponent(file.name || "arquivo")}`;
+}
+
+function parseFileReference(value) {
+  const raw = String(value || "").trim();
+  if (!raw || /^(sem anexo|não anexado|nao anexado|sem arquivo|visualizar \/ download pendente)$/i.test(raw)) {
+    return { id: "", name: "", reference: "" };
+  }
+  if (raw.startsWith(storageReferencePrefix)) {
+    const [id, ...nameParts] = raw.slice(storageReferencePrefix.length).split(":");
+    return { id, name: decodeURIComponent(nameParts.join(":") || "arquivo"), reference: raw };
+  }
+  if (raw.startsWith(localFileReferencePrefix)) {
+    return { id: "", name: decodeURIComponent(raw.slice(localFileReferencePrefix.length)), reference: raw, local: true };
+  }
+  return { id: "", name: raw, reference: raw, url: /^https?:\/\//i.test(raw) ? raw : "" };
+}
+
+function unitForId(unitId) {
+  return data.units.find((unit) => unit.id === unitId) || state.drafts.find((unit) => unit.id === unitId);
+}
+
+async function uploadTenantFile(file, unitId, category) {
+  const unit = unitForId(unitId);
+  if (!unit) throw new Error("Não foi possível identificar a franquia deste arquivo.");
+
+  if (!supabaseEnabled || !state.auth?.token) {
+    return { id: "", name: file.name, reference: serializeFileReference({ name: file.name }) };
+  }
+
+  const tenantId = unit.tenantId || unit.id;
+  const upload = await storageRequest("sign-upload", {
+    tenantId,
+    unitId: unit.id,
+    moduleCode: "business",
+    category,
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+  });
+  const signedUrl = upload.signedUrl.startsWith("http")
+    ? upload.signedUrl
+    : `${supabaseConfig.url.replace(/\/$/, "")}${upload.signedUrl}`;
+  const formData = new FormData();
+  formData.append("cacheControl", "3600");
+  formData.append("", file);
+  const uploadResponse = await fetch(signedUrl, {
+    method: "PUT",
+    headers: { "x-upsert": "false" },
+    body: formData,
+  });
+  if (!uploadResponse.ok) throw new Error("O arquivo não pôde ser enviado ao Storage.");
+
+  const completed = await storageRequest("complete-upload", {
+    tenantId,
+    unitId: unit.id,
+    moduleCode: "business",
+    category,
+    path: upload.path,
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+    metadata: { source: "franchise-workspace" },
+  });
+  const storedFile = completed.file;
+  return {
+    id: storedFile.id,
+    name: storedFile.original_name,
+    reference: serializeFileReference({ id: storedFile.id, name: storedFile.original_name }),
+  };
+}
+
+async function handleFileUpload(input) {
+  const file = input.files?.[0];
+  const control = input.closest("[data-attachment-control]");
+  if (!file || !control) return;
+  const hidden = control.querySelector("[data-file-reference]");
+  const label = control.querySelector("[data-attachment-name]");
+  const picker = control.querySelector(".attachment-picker");
+  input.disabled = true;
+  if (picker) picker.classList.add("is-loading");
+  if (label) label.textContent = "Enviando arquivo...";
+  try {
+    const uploaded = await uploadTenantFile(file, input.dataset.unitId, input.dataset.category || "geral");
+    hidden.value = uploaded.reference;
+    control.dataset.fileId = uploaded.id || "";
+    control.dataset.tenantId = unitForId(input.dataset.unitId)?.tenantId || input.dataset.unitId;
+    if (label) label.textContent = uploaded.name;
+    control.classList.add("has-file");
+    const openButton = control.querySelector("[data-open-attachment]");
+    if (openButton) openButton.hidden = !uploaded.id;
+    const removeButton = control.querySelector("[data-remove-attachment]");
+    if (removeButton) removeButton.hidden = false;
+  } catch (error) {
+    hidden.value = "";
+    control.classList.remove("has-file");
+    if (label) label.textContent = "Selecionar arquivo";
+    alert(error.message || "Não foi possível anexar o arquivo.");
+  } finally {
+    input.disabled = false;
+    input.value = "";
+    if (picker) picker.classList.remove("is-loading");
+  }
+}
+
+async function openAttachmentFile(button) {
+  const control = button.closest("[data-attachment-control]");
+  const parsed = parseFileReference(control?.querySelector("[data-file-reference]")?.value);
+  if (parsed.url) {
+    window.open(parsed.url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  if (!parsed.id || !control?.dataset.tenantId) return;
+  try {
+    const result = await storageRequest("sign-download", {
+      tenantId: control.dataset.tenantId,
+      unitId: control.dataset.unitId,
+      fileId: parsed.id,
+    });
+    window.open(result.url, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    alert(error.message || "Não foi possível abrir o arquivo.");
+  }
+}
+
+async function removeAttachmentFile(button) {
+  const control = button.closest("[data-attachment-control]");
+  const hidden = control?.querySelector("[data-file-reference]");
+  const parsed = parseFileReference(hidden?.value);
+  if (!control || !hidden) return;
+  if (parsed.id && supabaseEnabled && state.auth?.token) {
+    if (!window.confirm(`Remover o arquivo ${parsed.name}?`)) return;
+    try {
+      await storageRequest("delete", {
+        tenantId: control.dataset.tenantId,
+        unitId: control.dataset.unitId,
+        fileId: parsed.id,
+      });
+    } catch (error) {
+      alert(error.message || "Não foi possível remover o arquivo.");
+      return;
+    }
+  }
+  hidden.value = "";
+  control.dataset.fileId = "";
+  control.classList.remove("has-file");
+  const label = control.querySelector("[data-attachment-name]");
+  if (label) label.textContent = "Selecionar arquivo";
+  const openButton = control.querySelector("[data-open-attachment]");
+  if (openButton) openButton.hidden = true;
+  button.hidden = true;
+}
+
+function attachmentControl(value, unit, category, fieldAttributes = "") {
+  const parsed = parseFileReference(value);
+  const tenantId = unit.tenantId || unit.id;
+  const hasFile = Boolean(parsed.name);
+  return `
+    <div class="attachment-control ${hasFile ? "has-file" : ""}" data-attachment-control data-file-id="${escapeHtml(parsed.id)}" data-unit-id="${escapeHtml(unit.id)}" data-tenant-id="${escapeHtml(tenantId)}">
+      <input type="hidden" data-file-reference ${fieldAttributes} value="${escapeHtml(parsed.reference)}" />
+      <label class="attachment-picker">
+        <span data-attachment-name>${escapeHtml(parsed.name || "Selecionar arquivo")}</span>
+        <input type="file" data-file-upload data-unit-id="${escapeHtml(unit.id)}" data-category="${escapeHtml(category)}" accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx,.doc,.docx" />
+      </label>
+      <div class="attachment-actions">
+        <button class="icon-text-button" data-open-attachment type="button"${parsed.id || parsed.url ? "" : " hidden"}>Abrir</button>
+        <button class="icon-text-button danger" data-remove-attachment type="button"${hasFile ? "" : " hidden"}>Remover</button>
+      </div>
+    </div>
+  `;
+}
+
 function updateSourceCount() {
   if (sourceCount) sourceCount.textContent = supabaseEnabled ? "Supabase" : `${data.sourceFiles.length} planilhas`;
 }
@@ -675,7 +889,11 @@ function applyViewPermissions() {
     "[data-operational-field]", "[data-unit-record-form] input", "[data-unit-record-form] select",
     "[data-unit-record-form] textarea", "[data-add-unit-record]", "[data-save-pendencies]",
     "[data-save-accreditations]", "[data-save-operational]", "[data-delete-operational]",
-    "[data-delete-accreditation]", "[data-delete-record]",
+    "[data-delete-accreditation]", "[data-delete-record]", "[data-schedule-status]",
+    "[data-schedule-owner]", "[data-schedule-deadline]", "[data-schedule-actual-date]",
+    "[data-schedule-notes]", "[data-save-schedule]", "[data-file-upload]",
+    "[data-remove-attachment]", "[data-pendency-owner]", "[data-pendency-deadline]",
+    "[data-pendency-priority]",
   ];
   app.querySelectorAll(protectedSelectors.join(",")).forEach((element) => { element.disabled = true; });
   if (["franchises", "roadmap", "purchases", "accreditation"].includes(state.view)) {
@@ -1153,8 +1371,11 @@ function meetingItems(unit) {
 function pendingItemsForUnit(unit) {
   const taskPendencies = (unit.tasks || [])
     .filter((task) => getStatus(task) !== "Concluído")
-    .map((task) => ({
+    .map((task) => applyOperationalRecord(unit.id, "pendencies", {
       id: task.id,
+      recordId: task.id,
+      unitId: unit.id,
+      recordType: "pendencies",
       title: task.process,
       area: task.phase,
       owner: unit.owner || unit.ownerName || "Implantação",
@@ -1164,11 +1385,14 @@ function pendingItemsForUnit(unit) {
       attachment: "Não anexado",
       notes: task.notes || "",
       overdue: isOverdue(task.deadline),
-    }));
+    })).filter((item) => !item.hidden);
   const purchasePendencies = (unit.purchases || [])
     .filter((item) => getStatus(item) !== "Concluído")
-    .map((item) => ({
+    .map((item) => applyOperationalRecord(unit.id, "pendencies", {
       id: item.id,
+      recordId: item.id,
+      unitId: unit.id,
+      recordType: "pendencies",
       title: item.item,
       area: "Compras",
       owner: "Operação",
@@ -1178,7 +1402,7 @@ function pendingItemsForUnit(unit) {
       attachment: "Não anexado",
       notes: item.notes || "",
       overdue: false,
-    }));
+    })).filter((item) => !item.hidden);
   return [...taskPendencies, ...purchasePendencies];
 }
 
@@ -1887,6 +2111,17 @@ function renderUnitSummary(unit, stats) {
 function renderUnitSchedule(unit, stats) {
   const schedule = scheduleState(unit);
   const byPhase = groupBy(unit.tasks || [], (task) => task.phase);
+  const rows = (unit.tasks || []).map((task) => applyOperationalRecord(unit.id, "schedule", {
+    ...task,
+    recordId: task.id,
+    unitId: unit.id,
+    recordType: "schedule",
+    owner: task.owner || unit.owner || unit.ownerName || "Implantação",
+    deadline: task.deadline || unit.openingDate || "",
+    actualDate: task.actualDate || "",
+    notes: task.notes || "",
+    attachment: task.attachment || "",
+  })).filter((item) => !item.hidden);
   return `
     <div class="schedule-hero ${schedule.className}">
       <div>
@@ -1916,20 +2151,35 @@ function renderUnitSchedule(unit, stats) {
           </tr>
         </thead>
         <tbody>
-          ${(unit.tasks || []).map((task) => `
-            <tr>
+          ${rows.map((task) => `
+            <tr data-schedule-row data-unit-id="${escapeHtml(unit.id)}" data-record-id="${escapeHtml(task.id)}">
               <td><span class="row-title">${escapeHtml(task.process)}</span><small>${escapeHtml(task.phase)}</small></td>
-              <td>${statusSelect(task)}</td>
-              <td>${escapeHtml(unit.owner || unit.ownerName || "Implantação")}</td>
-              <td>${formatDate(task.deadline || unit.openingDate)}</td>
-              <td>${formatDate(task.actualDate)}</td>
-              <td>${escapeHtml(task.notes || "")}</td>
-              <td>${task.notes ? "Registro em observações" : "Sem anexo"}</td>
+              <td>${scheduleStatusSelect(task)}</td>
+              <td><input class="table-input" data-schedule-owner type="text" value="${escapeHtml(task.owner || "")}" aria-label="Responsável por ${escapeHtml(task.process)}" /></td>
+              <td><input class="table-input" data-schedule-deadline type="date" value="${escapeHtml(task.deadline || "")}" aria-label="Prazo de ${escapeHtml(task.process)}" /></td>
+              <td><input class="table-input" data-schedule-actual-date type="date" value="${escapeHtml(task.actualDate || "")}" aria-label="Conclusão de ${escapeHtml(task.process)}" /></td>
+              <td><textarea class="table-textarea schedule-notes" data-schedule-notes rows="2" placeholder="Adicionar observação">${escapeHtml(task.notes || "")}</textarea></td>
+              <td>${attachmentControl(task.attachment, unit, "cronograma", "data-schedule-attachment")}</td>
             </tr>
           `).join("")}
         </tbody>
       </table>
     </div>
+    <div class="pendency-save-bar">
+      <span>Datas, responsáveis, observações, status e anexos só entram no sistema ao salvar.</span>
+      <button class="primary-button" data-save-schedule type="button">Salvar cronograma</button>
+    </div>
+  `;
+}
+
+function scheduleStatusSelect(item) {
+  const current = getStatus(item);
+  const options = [...statusOptions];
+  if (current && !options.includes(current)) options.push(current);
+  return `
+    <select class="${statusClass(current)} manual-status-select" data-schedule-status aria-label="Status de ${escapeHtml(item.process)}">
+      ${options.map((status) => `<option value="${escapeHtml(status)}"${current === status ? " selected" : ""}>${escapeHtml(status)}</option>`).join("")}
+    </select>
   `;
 }
 
@@ -1979,7 +2229,7 @@ function renderUnitAccreditation(unit, stats) {
       { name: "requestDate", label: "Solicitação", type: "date" },
       { name: "approvalDate", label: "Aprovação", type: "date" },
       { name: "owner", label: "Responsável", placeholder: "Responsável interno" },
-      { name: "attachments", label: "Anexos", placeholder: "Link ou nome do arquivo" },
+      { name: "attachments", label: "Anexos", type: "attachment" },
       { name: "notes", label: "Observações", type: "textarea", placeholder: "Histórico, retorno do órgão, próximos passos" },
     ], "Adicionar credenciamento")}
     <div class="table-wrap">
@@ -1993,7 +2243,7 @@ function renderUnitAccreditation(unit, stats) {
               <td><input class="table-input" data-accreditation-request-date type="date" value="${escapeHtml(item.requestDate || "")}" /></td>
               <td><input class="table-input" data-accreditation-approval-date type="date" value="${escapeHtml(item.approvalDate || "")}" /></td>
               <td><input class="table-input" data-accreditation-owner type="text" value="${escapeHtml(item.owner || unit.owner || unit.ownerName || "Credenciamento")}" /></td>
-              <td><input class="table-input" data-accreditation-attachments type="text" value="${escapeHtml(item.attachments || "")}" placeholder="Sem anexo" /></td>
+              <td>${attachmentControl(item.attachments, unit, "credenciamentos", "data-accreditation-attachments")}</td>
               <td><textarea class="table-textarea" data-accreditation-notes rows="2" placeholder="Observações">${escapeHtml(item.notes || "")}</textarea></td>
               <td>${accreditationActions(item)}</td>
             </tr>
@@ -2035,7 +2285,7 @@ function renderUnitDocuments(unit, stats) {
       { name: "owner", label: "Responsável", placeholder: "Quem acompanha" },
       { name: "status", label: "Status", type: "select", options: ["Pendente", "Em análise", "Aprovado", "Reprovado"] },
       { name: "signature", label: "Assinatura", type: "select", options: ["Não informado", "Aplicável", "Não aplicável", "Assinado"] },
-      { name: "file", label: "Arquivo", placeholder: "Link ou nome do arquivo" },
+      { name: "file", label: "Arquivo", type: "attachment" },
       { name: "history", label: "Histórico", type: "textarea", placeholder: "Observações e versões anteriores" },
     ], "Adicionar documento")}
     ${renderEditableOperationalTable("documents", rows, [
@@ -2047,7 +2297,7 @@ function renderUnitDocuments(unit, stats) {
       { key: "status", label: "Status", type: "status", options: ["Pendente", "Em análise", "Aprovado", "Reprovado"] },
       { key: "signature", label: "Assinatura", type: "select", options: ["Não informado", "Aplicável", "Não aplicável", "Assinado"] },
       { key: "history", label: "Histórico", type: "textarea", minWidth: 320 },
-      { key: "file", label: "Arquivo", type: "text", minWidth: 220 },
+      { key: "file", label: "Arquivo", type: "attachment", minWidth: 220 },
     ], "Nenhum documento mapeado a partir do roadmap")}
   `;
 }
@@ -2082,7 +2332,7 @@ function renderUnitTraining(unit, stats) {
       { name: "status", label: "Status", type: "select", options: ["Pendente", "Em Andamento", "Concluído"] },
       { name: "attendance", label: "Presença", placeholder: "Registrada, pendente..." },
       { name: "material", label: "Material", placeholder: "Manual, vídeo, apresentação" },
-      { name: "attachments", label: "Anexos", placeholder: "Link ou nome do arquivo" },
+      { name: "attachments", label: "Anexos", type: "attachment" },
     ], "Adicionar treinamento")}
     ${renderEditableOperationalTable("trainings", rows, [
       { key: "name", label: "Nome", type: "text", minWidth: 240 },
@@ -2094,7 +2344,7 @@ function renderUnitTraining(unit, stats) {
       { key: "status", label: "Status", type: "status", options: ["Pendente", "Em Andamento", "Concluído"] },
       { key: "attendance", label: "Presença", type: "text" },
       { key: "material", label: "Material", type: "text", minWidth: 220 },
-      { key: "attachments", label: "Anexos", type: "text", minWidth: 220 },
+      { key: "attachments", label: "Anexos", type: "attachment", minWidth: 220 },
     ], "Nenhum treinamento mapeado")}
   `;
 }
@@ -2124,7 +2374,7 @@ function renderUnitMeetings(unit, stats) {
       { name: "pending", label: "Pendências", placeholder: "Ações geradas" },
       { name: "owner", label: "Responsáveis", placeholder: "Responsável pela ação" },
       { name: "deadline", label: "Prazo", type: "date" },
-      { name: "attachments", label: "Anexos", placeholder: "Ata, gravação, arquivo" },
+      { name: "attachments", label: "Anexos", type: "attachment" },
       { name: "history", label: "Histórico", type: "textarea", placeholder: "Decisões e encaminhamentos" },
     ], "Adicionar ata")}
     ${renderEditableOperationalTable("meetings", rows, [
@@ -2134,7 +2384,7 @@ function renderUnitMeetings(unit, stats) {
       { key: "pending", label: "Pendências", type: "text", minWidth: 260 },
       { key: "owner", label: "Responsáveis", type: "text", minWidth: 190 },
       { key: "deadline", label: "Prazo", type: "date" },
-      { key: "attachments", label: "Anexos", type: "text", minWidth: 220 },
+      { key: "attachments", label: "Anexos", type: "attachment", minWidth: 220 },
       { key: "history", label: "Histórico", type: "textarea", minWidth: 340 },
     ], "Nenhuma ata mapeada")}
   `;
@@ -2143,6 +2393,9 @@ function renderUnitMeetings(unit, stats) {
 function renderUnitPendencies(unit, stats) {
   const manualRows = customRecords(unit, "pendencies").map((record) => ({
     id: record.id,
+    unitId: unit.id,
+    recordId: record.id,
+    recordType: "pendencies",
     manual: true,
     title: record.title || "Pendência",
     owner: record.owner || unit.owner || unit.ownerName || "Implantação",
@@ -2166,7 +2419,7 @@ function renderUnitPendencies(unit, stats) {
       { name: "deadline", label: "Prazo", type: "date" },
       { name: "priority", label: "Prioridade", type: "select", options: ["Alta", "Média", "Baixa"] },
       { name: "status", label: "Status", type: "select", options: ["Pendente", "Em Andamento", "Concluído"] },
-      { name: "attachment", label: "Anexo", placeholder: "Link ou nome do arquivo" },
+      { name: "attachment", label: "Anexo", type: "attachment" },
       { name: "notes", label: "Observações", type: "textarea", placeholder: "Contexto, risco ou próximo passo" },
     ], "Adicionar pendência")}
     <div class="table-wrap">
@@ -2187,17 +2440,17 @@ function renderUnitPendencies(unit, stats) {
           ${rows.map((item) => {
             const resolved = getStatus(item) === "Concluído";
             return `
-              <tr class="${resolved ? "pendency-resolved" : ""}">
+              <tr class="${resolved ? "pendency-resolved" : ""}" data-pendency-row data-unit-id="${escapeHtml(item.unitId || unit.id)}" data-record-id="${escapeHtml(item.id)}" data-manual="${item.manual ? "true" : "false"}">
                 <td><span class="row-title">${escapeHtml(item.title)}</span></td>
-                <td>${escapeHtml(item.owner)}</td>
-                <td>${escapeHtml(formatDate(item.deadline))}</td>
-                <td>${escapeHtml(item.priority)}</td>
+                <td><input class="table-input" data-pendency-owner type="text" value="${escapeHtml(item.owner || "")}" /></td>
+                <td><input class="table-input" data-pendency-deadline type="date" value="${escapeHtml(item.deadline || "")}" /></td>
+                <td><select class="table-input" data-pendency-priority>${["Alta", "Média", "Baixa"].map((priority) => `<option value="${priority}"${item.priority === priority ? " selected" : ""}>${priority}</option>`).join("")}</select></td>
                 <td>${pendencyStatusSelect(item)}</td>
-                <td>${escapeHtml(item.attachment)}</td>
+                <td>${attachmentControl(item.attachment, unit, "pendencias", "data-pendency-attachment")}</td>
                 <td>
                   <textarea class="pendency-note-input" data-pendency-note="${item.id}" rows="2" placeholder="Adicionar observação">${escapeHtml(getPendencyNotes(item))}</textarea>
                 </td>
-                <td>${recordActions(item)}</td>
+                <td>${item.manual ? recordActions(item) : operationalActions(item)}</td>
               </tr>
             `;
           }).join("") || `<tr><td colspan="8">${empty("Nenhuma pendência aberta")}</td></tr>`}
@@ -2285,6 +2538,11 @@ function operationalField(item, column) {
   const width = column.minWidth ? ` style="min-width:${column.minWidth}px"` : "";
   const common = `data-operational-field="${escapeHtml(column.key)}" aria-label="${escapeHtml(column.label)}"${width}`;
 
+  if (column.type === "attachment") {
+    const unit = unitForId(item.unitId) || { id: item.unitId, tenantId: item.unitId };
+    return attachmentControl(value, unit, item.recordType || "geral", `data-operational-field="${escapeHtml(column.key)}"`);
+  }
+
   if (column.type === "textarea") {
     return `<textarea class="table-textarea" ${common} rows="2">${escapeHtml(value)}</textarea>`;
   }
@@ -2324,14 +2582,18 @@ function getPendencyNotes(item) {
 
 async function savePendencyChanges(button) {
   const scope = button.closest(".unit-tab-panel") || app;
-  const notes = {};
-  scope.querySelectorAll("[data-pendency-note]").forEach((field) => {
-    notes[field.dataset.pendencyNote] = field.value;
-  });
-  const updates = [...scope.querySelectorAll("[data-pendency-status]")].map((field) => ({
-    id: field.dataset.pendencyStatus,
-    status: field.value,
-    notes: notes[field.dataset.pendencyStatus] || "",
+  const updates = [...scope.querySelectorAll("[data-pendency-row]")].map((row) => ({
+    id: row.dataset.recordId,
+    unitId: row.dataset.unitId,
+    manual: row.dataset.manual === "true",
+    status: row.querySelector("[data-pendency-status]")?.value || "Pendente",
+    values: {
+      owner: row.querySelector("[data-pendency-owner]")?.value.trim() || "Implantação",
+      deadline: row.querySelector("[data-pendency-deadline]")?.value || "",
+      priority: row.querySelector("[data-pendency-priority]")?.value || "Média",
+      attachment: row.querySelector("[data-pendency-attachment]")?.value || "",
+      notes: row.querySelector("[data-pendency-note]")?.value.trim() || "",
+    },
   }));
 
   button.disabled = true;
@@ -2340,15 +2602,28 @@ async function savePendencyChanges(button) {
 
   try {
     for (const item of updates) {
-      if (updateManualRecord(item.id, { status: item.status, notes: item.notes })) continue;
+      if (item.manual && updateManualRecord(item.id, { status: item.status, ...item.values })) continue;
 
-      state.pendencyNotes[item.id] = item.notes;
+      state.pendencyNotes[item.id] = item.values.notes;
+      setLocalOperationalRecord({
+        unitId: item.unitId,
+        recordType: "pendencies",
+        recordId: item.id,
+        values: item.values,
+      });
       if (supabaseEnabled && state.auth?.token) {
         const functionName = isPurchaseId(item.id) ? "update_purchase_status" : "update_task_status";
         const payload = isPurchaseId(item.id)
           ? { p_token: state.auth.token, p_purchase_id: item.id, p_status: item.status }
           : { p_token: state.auth.token, p_task_id: item.id, p_status: item.status };
         await supabaseRpc(functionName, payload);
+        await supabaseRpc("update_unit_operational_record", {
+          p_token: state.auth.token,
+          p_unit_id: item.unitId,
+          p_record_type: "pendencies",
+          p_record_id: item.id,
+          p_payload: item.values,
+        });
         setLocalItemStatus(item.id, item.status);
       } else {
         state.statusOverrides[item.id] = item.status;
@@ -2356,6 +2631,7 @@ async function savePendencyChanges(button) {
     }
     writeStorage("franchisePendencyNotes", state.pendencyNotes);
     writeStorage("franchiseStatusOverrides", state.statusOverrides);
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
     render();
   } catch (error) {
     button.disabled = false;
@@ -2499,6 +2775,62 @@ async function saveOperationalChanges(recordType, button) {
   }
 }
 
+async function saveScheduleChanges(button) {
+  const scope = button.closest(".unit-tab-panel") || app;
+  const updates = [...scope.querySelectorAll("[data-schedule-row]")].map((row) => ({
+    unitId: row.dataset.unitId,
+    recordId: row.dataset.recordId,
+    status: row.querySelector("[data-schedule-status]")?.value || "Pendente",
+    values: {
+      owner: row.querySelector("[data-schedule-owner]")?.value.trim() || "Implantação",
+      deadline: row.querySelector("[data-schedule-deadline]")?.value || "",
+      actualDate: row.querySelector("[data-schedule-actual-date]")?.value || "",
+      notes: row.querySelector("[data-schedule-notes]")?.value.trim() || "",
+      attachment: row.querySelector("[data-schedule-attachment]")?.value || "",
+    },
+  }));
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Salvando...";
+
+  try {
+    for (const item of updates) {
+      setLocalOperationalRecord({
+        unitId: item.unitId,
+        recordType: "schedule",
+        recordId: item.recordId,
+        values: item.values,
+      });
+
+      if (supabaseEnabled && state.auth?.token) {
+        await supabaseRpc("update_task_status", {
+          p_token: state.auth.token,
+          p_task_id: item.recordId,
+          p_status: item.status,
+        });
+        await supabaseRpc("update_unit_operational_record", {
+          p_token: state.auth.token,
+          p_unit_id: item.unitId,
+          p_record_type: "schedule",
+          p_record_id: item.recordId,
+          p_payload: item.values,
+        });
+        setLocalItemStatus(item.recordId, item.status);
+      } else {
+        state.statusOverrides[item.recordId] = item.status;
+      }
+    }
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    writeStorage("franchiseStatusOverrides", state.statusOverrides);
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível salvar o cronograma.");
+  }
+}
+
 async function deleteOperationalRecord(button) {
   const item = {
     unitId: button.dataset.unitId,
@@ -2585,10 +2917,10 @@ function recordForm(unit, type, fields, buttonLabel) {
           <span class="small-label">Inserção de dados</span>
           <h3>${escapeHtml(buttonLabel.replace("Adicionar ", ""))}</h3>
         </div>
-        <span class="badge info">salvo localmente</span>
+        <span class="badge info">salvo ao adicionar</span>
       </div>
       <div class="record-form-grid">
-        ${fields.map((field) => recordField(field)).join("")}
+        ${fields.map((field) => recordField(field, unit, type)).join("")}
       </div>
       <div class="record-form-actions">
         <button class="primary-button" data-add-unit-record type="button">${escapeHtml(buttonLabel)}</button>
@@ -2597,7 +2929,7 @@ function recordForm(unit, type, fields, buttonLabel) {
   `;
 }
 
-function recordField(field) {
+function recordField(field, unit, recordType) {
   const common = `name="${escapeHtml(field.name)}"`;
   const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : "";
   let control = `<input ${common} type="${escapeHtml(field.type || "text")}"${placeholder} />`;
@@ -2610,6 +2942,9 @@ function recordField(field) {
   }
   if (field.type === "textarea") {
     control = `<textarea ${common}${placeholder} rows="3"></textarea>`;
+  }
+  if (field.type === "attachment") {
+    control = attachmentControl("", unit, recordType, common);
   }
   return `
     <label class="${field.type === "textarea" ? "span-2" : ""}">
@@ -3285,6 +3620,7 @@ function addUnitRecord(button) {
   const recordType = form.dataset.recordType;
   const values = {};
   form.querySelectorAll("input, select, textarea").forEach((field) => {
+    if (!field.name) return;
     values[field.name] = typeof field.value === "string" ? field.value.trim() : field.value;
   });
 
