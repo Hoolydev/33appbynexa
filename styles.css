@@ -2674,7 +2674,7 @@ textarea:focus {
 
 .franchise-meta-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -2688,6 +2688,13 @@ textarea:focus {
   padding: 10px;
 }
 
+.franchise-card .franchise-meta-grid > span {
+  min-height: 82px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
 .franchise-meta-grid small,
 .summary-card span {
   color: var(--muted);
@@ -2698,11 +2705,15 @@ textarea:focus {
 
 .franchise-meta-grid strong,
 .summary-card strong {
-  overflow: hidden;
   color: var(--ink);
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.franchise-card .franchise-meta-grid strong {
+  overflow: visible;
+  line-height: 1.25;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .unit-workspace-head {
@@ -2720,9 +2731,15 @@ textarea:focus {
   text-align: left;
 }
 
+.franchise-card .unit-workspace-head {
+  min-height: 76px;
+  align-items: flex-start;
+}
+
 .unit-workspace-head span:first-child {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .unit-workspace-head strong {
@@ -2740,6 +2757,23 @@ textarea:focus {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.franchise-card .unit-head-metrics {
+  display: grid;
+  grid-template-columns: auto auto;
+  flex: 0 0 auto;
+  justify-items: end;
+  max-width: 148px;
+}
+
+.franchise-card .unit-head-metrics .chevron {
+  grid-column: 2;
+}
+
+.franchise-card > .badge-row {
+  justify-content: center;
+  align-items: center;
 }
 
 .unit-percent {
