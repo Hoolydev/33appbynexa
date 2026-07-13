@@ -30,7 +30,18 @@ supabase/migrations/202607130001_tenant_private_storage.sql
 
 Ela cria o bucket privado `tenant-documents`, a tabela `tenant_files` e a validação de acesso por franquia. Os arquivos ficam no Storage; nome, categoria, tenant, unidade, módulo e responsável ficam no Postgres.
 
-> Estado atual: as rotas seguras de upload, listagem, download e exclusão estão disponíveis em `/api/storage/*`. Os campos visuais de “Anexo” que ainda aceitam texto/link precisam ser conectados a essas rotas na implementação de cada fluxo operacional.
+Os registros operacionais dos novos departamentos ficam na migration:
+
+```text
+supabase/migrations/202607130002_department_modules.sql
+```
+
+Ela cria `module_records` e as RPCs multi-tenant de leitura, criação, edição e exclusão. Os módulos disponíveis são:
+
+- RH: vagas, candidatos, pipeline, página pública e classificação de aderência;
+- Departamento Pessoal: colaboradores e competências da folha;
+- Contabilidade: documentos por competência, status, observações e anexos privados;
+- Financeiro: contas a pagar e receber, vencimentos, pagamentos e indicadores calculados.
 
 ## Onde os dados ficam hoje
 
@@ -102,6 +113,15 @@ SUPABASE_SERVICE_ROLE_KEY
 
 `SUPABASE_SERVICE_ROLE_KEY` é usada somente pelas funções em `/api/storage/*` para intermediar arquivos privados. Ela nunca é escrita em `supabase-config.js` nem enviada ao navegador.
 
+Para usar a análise de candidatos com um modelo de IA, configure também no servidor:
+
+```text
+OPENAI_API_KEY
+OPENAI_SCORING_MODEL
+```
+
+Sem essas duas variáveis, o recrutamento continua funcionando com uma classificação automática determinística baseada nos requisitos e nas competências informadas.
+
 O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. Não crie políticas públicas no bucket: a autenticação deste projeto usa `app_sessions`, e as rotas server-side validam o token e o tenant antes de gerar URLs temporárias.
 
 ## Checklist depois das migrations
@@ -114,7 +134,7 @@ O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. N�
 6. Confira os módulos liberados por franquia em `tenant_modules`.
 7. Teste login, leitura do portal e uma alteração de implantação antes de liberar usuários finais.
 
-Rodar migrations não configura variáveis da Vercel, não cria automaticamente os vínculos dos novos usuários e não transforma os módulos ainda em construção em fluxos completos. Implantação/Negócios tem persistência implementada; RH, DP, Contabilidade e Financeiro ainda precisam dos cadastros e regras operacionais específicos.
+Rodar migrations não configura variáveis da Vercel nem cria automaticamente os vínculos dos novos usuários. As ativações continuam sendo controladas em Administração, e cada registro departamental é isolado pelo tenant selecionado.
 
 ## Nova unidade
 
@@ -151,7 +171,7 @@ No GitHub, suba a pasta `franquia-sistema` como repositório. Na Vercel, importe
 - Output Directory: `.`
 - Install Command: vazio ou padrão
 
-Enquanto o banco não for implementado, o deploy carregará os dados do `data.js` e alterações continuarão locais no navegador de cada usuário.
+Em produção, o build remove os dados estáticos de `data.js`; o conteúdo autenticado é carregado do Supabase.
 
 ## Atualizar dados das planilhas
 

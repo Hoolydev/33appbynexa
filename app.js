@@ -31,6 +31,10 @@ const state = {
   tenantModules: [],
   adminData: null,
   selectedTenantId: "",
+  departmentRecords: readStorage("departmentRecords", {}),
+  moduleLoaded: {},
+  moduleLoading: {},
+  moduleEditing: {},
   loading: false,
 };
 
@@ -66,6 +70,18 @@ landingScreen.addEventListener("click", (event) => {
   if (event.target.closest("[data-open-login]")) {
     showLogin();
   }
+  const jobLink = event.target.closest("[data-career-job-link]");
+  if (jobLink) {
+    const select = landingScreen.querySelector('[data-job-application-form] select[name="vacancyId"]');
+    if (select) select.value = jobLink.dataset.careerJobLink;
+  }
+});
+
+landingScreen.addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-job-application-form]");
+  if (!form) return;
+  event.preventDefault();
+  await submitJobApplication(form);
 });
 
 loginScreen.addEventListener("click", (event) => {
@@ -82,12 +98,16 @@ loginScreen.addEventListener("submit", async (event) => {
 });
 
 document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     state.view = button.dataset.view;
     if (state.view === "franchises") state.franchiseWorkspaceUnitId = "";
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     render();
+    if (moduleDefinitions[state.view]) {
+      await loadModuleRecords(state.view);
+      render();
+    }
   });
 });
 
@@ -164,6 +184,13 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-module-tenant]")) {
     state.selectedTenantId = target.value;
     render();
+    if (moduleDefinitions[state.view]) {
+      await loadModuleRecords(state.view);
+      render();
+    }
+  }
+  if (target.matches("[data-module-record-status]")) {
+    await updateModuleRecordStatus(target);
   }
   if (target.matches("[data-admin-module-status]")) {
     adminSetModuleStatus(target);
@@ -289,11 +316,29 @@ app.addEventListener("click", (event) => {
 
   const approveModuleButton = event.target.closest("[data-approve-module]");
   if (approveModuleButton) adminApproveModuleRequest(approveModuleButton);
+
+  const saveModuleRecordButton = event.target.closest("[data-save-module-record]");
+  if (saveModuleRecordButton) saveModuleRecord(saveModuleRecordButton);
+
+  const editModuleRecordButton = event.target.closest("[data-edit-module-record]");
+  if (editModuleRecordButton) editModuleRecord(editModuleRecordButton);
+
+  const cancelModuleRecordButton = event.target.closest("[data-cancel-module-record]");
+  if (cancelModuleRecordButton) cancelModuleRecord(cancelModuleRecordButton);
+
+  const deleteModuleRecordButton = event.target.closest("[data-delete-module-record]");
+  if (deleteModuleRecordButton) deleteModuleRecord(deleteModuleRecordButton);
 });
 
 init();
 
 async function init() {
+  const careersTenant = new URLSearchParams(window.location.search).get("careers");
+  if (careersTenant) {
+    await showCareersPortal(careersTenant);
+    return;
+  }
+
   const isLocalSystemPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname)
     && new URLSearchParams(window.location.search).get("preview") === "system";
 
@@ -329,6 +374,85 @@ async function init() {
     state.auth = null;
     writeStorage("appSession", null);
     showLogin("Sessão expirada. Entre novamente.");
+  }
+}
+
+async function showCareersPortal(tenantCode) {
+  loginScreen.hidden = true;
+  appShell.hidden = true;
+  landingScreen.hidden = false;
+  landingScreen.innerHTML = '<main class="careers-page"><section class="careers-loading"><strong>Carregando oportunidades...</strong></section></main>';
+  try {
+    const response = await fetch(`/api/jobs?tenant=${encodeURIComponent(tenantCode)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as vagas.");
+    landingScreen.innerHTML = renderCareersPortal(payload);
+  } catch (error) {
+    landingScreen.innerHTML = `<main class="careers-page"><section class="careers-empty"><span>33Doctor APP</span><h1>Oportunidades indisponíveis</h1><p>${escapeHtml(error.message)}</p><a href="./">Voltar ao início</a></section></main>`;
+  }
+}
+
+function renderCareersPortal(payload) {
+  const jobs = payload.jobs || [];
+  return `<main class="careers-page">
+    <header class="careers-header">
+      <a href="./" class="brand-platform-lockup careers-brand"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Trabalhe conosco</small></a>
+      <span>${escapeHtml(payload.tenant?.name || "Franquia 33Doctor")}</span>
+    </header>
+    <section class="careers-hero">
+      <div><span>Faça parte da nossa equipe</span><h1>Encontre uma oportunidade para crescer com a 33Doctor.</h1><p>Conheça as vagas disponíveis nesta unidade e envie seu perfil diretamente para o processo seletivo.</p></div>
+      <strong>${jobs.length}<small>vaga(s) aberta(s)</small></strong>
+    </section>
+    <section class="careers-content">
+      <div class="careers-jobs">
+        <div class="landing-section-heading"><span>Oportunidades</span><h2>Vagas abertas</h2></div>
+        ${jobs.length ? jobs.map((job) => `<article class="career-job-card"><div><span>${escapeHtml(job.department || "Equipe 33Doctor")}</span><h3>${escapeHtml(job.title)}</h3><p>${escapeHtml(job.description || "Confira os requisitos e candidate-se para esta oportunidade.")}</p></div><dl><div><dt>Local</dt><dd>${escapeHtml(job.city || "A definir")}</dd></div><div><dt>Modelo</dt><dd>${escapeHtml(job.workType || "Presencial")}</dd></div><div><dt>Vagas</dt><dd>${escapeHtml(String(job.quantity || 1))}</dd></div></dl><a href="#candidatura" data-career-job-link="${escapeHtml(job.id)}">Candidatar-se</a></article>`).join("") : '<div class="careers-empty-inline">Nenhuma vaga pública está aberta no momento.</div>'}
+      </div>
+      ${jobs.length ? `<section id="candidatura" class="career-application-card"><span class="eyebrow">Candidatura</span><h2>Envie seu perfil</h2><p>Os dados serão usados exclusivamente neste processo seletivo.</p>
+        <form data-job-application-form data-tenant-code="${escapeHtml(payload.tenant.code)}">
+          <label>Vaga<select name="vacancyId" required><option value="">Selecione uma oportunidade</option>${jobs.map((job) => recordOption(job.id, job.title, "")).join("")}</select></label>
+          <label>Nome completo<input name="name" required /></label>
+          <div class="career-form-row"><label>E-mail<input name="email" type="email" required /></label><label>Telefone<input name="phone" required /></label></div>
+          <div class="career-form-row"><label>Experiência na área (anos)<input name="experienceYears" type="number" min="0" value="0" /></label><label>LinkedIn ou currículo online<input name="resumeUrl" type="url" placeholder="https://" /></label></div>
+          <label>Principais competências<input name="skills" required placeholder="Ex.: atendimento, vendas, Excel" /></label>
+          <label>Resumo profissional<textarea name="summary" required placeholder="Conte brevemente sua experiência e por que esta vaga combina com você."></textarea></label>
+          <label class="career-consent"><input name="consent" type="checkbox" required /><span>Autorizo o tratamento dos meus dados para fins de recrutamento e seleção.</span></label>
+          <input class="career-honeypot" name="website" tabindex="-1" autocomplete="off" />
+          <button class="hero-primary" type="submit">Enviar candidatura</button>
+          <div class="career-form-message" data-application-message></div>
+        </form>
+      </section>` : ""}
+    </section>
+    <footer class="careers-footer"><span>Processo seletivo pela plataforma 33Doctor APP</span><div><small>Desenvolvido pela</small><img src="./assets/nexa-logo.svg" alt="Nexa" /></div></footer>
+  </main>`;
+}
+
+async function submitJobApplication(form) {
+  if (!form.reportValidity()) return;
+  const button = form.querySelector('button[type="submit"]');
+  const message = form.querySelector("[data-application-message]");
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.tenantCode = form.dataset.tenantCode;
+  button.disabled = true;
+  button.textContent = "Enviando...";
+  message.textContent = "";
+  try {
+    const response = await fetch("/api/job-application", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Não foi possível enviar sua candidatura.");
+    form.reset();
+    message.className = "career-form-message success";
+    message.textContent = "Candidatura enviada com sucesso. A equipe responsável receberá seu perfil.";
+  } catch (error) {
+    message.className = "career-form-message error";
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Enviar candidatura";
   }
 }
 
@@ -545,7 +669,7 @@ function unitForId(unitId) {
   return data.units.find((unit) => unit.id === unitId) || state.drafts.find((unit) => unit.id === unitId);
 }
 
-async function uploadTenantFile(file, unitId, category) {
+async function uploadTenantFile(file, unitId, category, moduleCode = "business") {
   const unit = unitForId(unitId);
   if (!unit) throw new Error("Não foi possível identificar a franquia deste arquivo.");
 
@@ -557,7 +681,7 @@ async function uploadTenantFile(file, unitId, category) {
   const upload = await storageRequest("sign-upload", {
     tenantId,
     unitId: unit.id,
-    moduleCode: "business",
+    moduleCode,
     category,
     fileName: file.name,
     mimeType: file.type || "application/octet-stream",
@@ -579,7 +703,7 @@ async function uploadTenantFile(file, unitId, category) {
   const completed = await storageRequest("complete-upload", {
     tenantId,
     unitId: unit.id,
-    moduleCode: "business",
+    moduleCode,
     category,
     path: upload.path,
     fileName: file.name,
@@ -606,7 +730,7 @@ async function handleFileUpload(input) {
   if (picker) picker.classList.add("is-loading");
   if (label) label.textContent = "Enviando arquivo...";
   try {
-    const uploaded = await uploadTenantFile(file, input.dataset.unitId, input.dataset.category || "geral");
+    const uploaded = await uploadTenantFile(file, input.dataset.unitId, input.dataset.category || "geral", input.dataset.moduleCode || "business");
     hidden.value = uploaded.reference;
     control.dataset.fileId = uploaded.id || "";
     control.dataset.tenantId = unitForId(input.dataset.unitId)?.tenantId || input.dataset.unitId;
@@ -676,7 +800,7 @@ async function removeAttachmentFile(button) {
   button.hidden = true;
 }
 
-function attachmentControl(value, unit, category, fieldAttributes = "") {
+function attachmentControl(value, unit, category, fieldAttributes = "", moduleCode = "business") {
   const parsed = parseFileReference(value);
   const tenantId = unit.tenantId || unit.id;
   const hasFile = Boolean(parsed.name);
@@ -685,7 +809,7 @@ function attachmentControl(value, unit, category, fieldAttributes = "") {
       <input type="hidden" data-file-reference ${fieldAttributes} value="${escapeHtml(parsed.reference)}" />
       <label class="attachment-picker">
         <span data-attachment-name>${escapeHtml(parsed.name || "Selecionar arquivo")}</span>
-        <input type="file" data-file-upload data-unit-id="${escapeHtml(unit.id)}" data-category="${escapeHtml(category)}" accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx,.doc,.docx" />
+        <input type="file" data-file-upload data-unit-id="${escapeHtml(unit.id)}" data-category="${escapeHtml(category)}" data-module-code="${escapeHtml(moduleCode)}" accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx,.doc,.docx" />
       </label>
       <div class="attachment-actions">
         <button class="icon-text-button" data-open-attachment type="button"${parsed.id || parsed.url ? "" : " hidden"}>Abrir</button>
@@ -995,26 +1119,416 @@ function renderLockedModule(moduleCode, module, tenant, status) {
 
 function renderActiveModule(moduleCode, module, tenant, tenantStatus = "active") {
   const previewing = isPlatformAdmin() && tenantStatus !== "active";
+  const loading = state.moduleLoading[moduleRecordKey(moduleCode)];
+  const moduleContent = loading
+    ? '<section class="panel module-loading"><strong>Carregando dados do módulo...</strong></section>'
+    : {
+      hr: renderHrModule,
+      dp: renderDpModule,
+      accounting: renderAccountingModule,
+      finance: renderFinanceModule,
+    }[moduleCode](tenant);
   return `
     ${previewing ? `<div class="permission-banner admin-preview-banner">Prévia administrativa: este módulo está ${escapeHtml(moduleStatusLabel(tenantStatus).toLowerCase())} para ${escapeHtml(tenant.name)}. A visualização não altera a ativação do serviço.</div>` : ""}
     <section class="module-active-hero">
       <div>
         <span class="module-status-pill ${previewing ? "locked" : "active"}">${previewing ? "Prévia do administrador" : "Módulo ativo"}</span>
         <h3>${escapeHtml(tenant.name)}</h3>
-        <p>A estrutura do departamento está pronta para receber os fluxos operacionais.</p>
+        <p>${escapeHtml(module.description)}</p>
       </div>
-      <button class="primary-button" type="button" disabled>Novo registro</button>
+      <span class="module-live-indicator">Dados da franquia</span>
     </section>
-    <div class="module-metric-grid">
-      ${module.metrics.map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>Sem registros nesta etapa</small></article>`).join("")}
-    </div>
-    <section class="panel module-workflow-panel">
-      <div class="section-title-row"><div><span class="eyebrow">Fluxo do módulo</span><h2>Operação orientada por etapas</h2></div></div>
-      <div class="module-workflow">
-        ${module.workflow.map((step, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeHtml(step)}</strong><small>Configuração da próxima entrega</small></article>`).join("")}
-      </div>
-    </section>
+    ${moduleContent}
   `;
+}
+
+function moduleRecordKey(moduleCode, tenantId = currentTenantId()) {
+  return `${tenantId}:${moduleCode}`;
+}
+
+function recordsFor(moduleCode, recordType = "") {
+  const records = state.departmentRecords[moduleRecordKey(moduleCode)] || [];
+  return recordType ? records.filter((record) => record.recordType === recordType) : records;
+}
+
+async function loadModuleRecords(moduleCode, force = false) {
+  const key = moduleRecordKey(moduleCode);
+  if ((!force && state.moduleLoaded[key]) || state.moduleLoading[key]) return;
+  if (!supabaseEnabled || !state.auth?.token) {
+    state.moduleLoaded[key] = true;
+    return;
+  }
+  state.moduleLoading[key] = true;
+  try {
+    state.departmentRecords[key] = await supabaseRpc("get_module_records", {
+      p_token: state.auth.token,
+      p_tenant_id: currentTenantId(),
+      p_module_code: moduleCode,
+    });
+    state.moduleLoaded[key] = true;
+    writeStorage("departmentRecords", state.departmentRecords);
+  } catch (error) {
+    alert(error.message || "Não foi possível carregar os dados deste módulo.");
+  } finally {
+    state.moduleLoading[key] = false;
+  }
+}
+
+function moduleUnit(tenantId = currentTenantId()) {
+  return data.units.find((unit) => (unit.tenantId || unit.id) === tenantId) || data.units[0];
+}
+
+function moduleEditKey(moduleCode, recordType) {
+  return `${moduleRecordKey(moduleCode)}:${recordType}`;
+}
+
+function editingRecord(moduleCode, recordType) {
+  const id = state.moduleEditing[moduleEditKey(moduleCode, recordType)];
+  return recordsFor(moduleCode, recordType).find((record) => record.id === id) || null;
+}
+
+function recordValue(record, key, fallback = "") {
+  if (!record) return fallback;
+  if (key === "title" || key === "status") return record[key] ?? fallback;
+  return record.payload?.[key] ?? fallback;
+}
+
+function recordOption(value, label, current) {
+  return `<option value="${escapeHtml(value)}"${String(value) === String(current) ? " selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function metricCards(metrics) {
+  return `<div class="module-metric-grid department-metrics">${metrics.map((metric) => `
+    <article class="metric-${escapeHtml(metric.tone || "info")}">
+      <span>${escapeHtml(metric.label)}</span>
+      <strong>${escapeHtml(String(metric.value))}</strong>
+      <small>${escapeHtml(metric.detail)}</small>
+    </article>`).join("")}</div>`;
+}
+
+function recordStatusSelect(moduleCode, record, statuses) {
+  if (!canManageTenant()) return `<span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>`;
+  return `<select class="${statusClass(record.status)} module-record-status" data-module-record-status data-module-code="${escapeHtml(moduleCode)}" data-record-id="${escapeHtml(record.id)}" aria-label="Status de ${escapeHtml(record.title)}">
+    ${statuses.map((status) => recordOption(status, status, record.status)).join("")}
+  </select>`;
+}
+
+function moduleRecordActions(moduleCode, record) {
+  if (!canManageTenant()) return "";
+  return `<div class="module-row-actions">
+    <button class="icon-text-button" data-edit-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.id)}" type="button">Editar</button>
+    <button class="icon-text-button danger" data-delete-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-id="${escapeHtml(record.id)}" type="button">Excluir</button>
+  </div>`;
+}
+
+function formActions(moduleCode, recordType, editing) {
+  return `<div class="department-form-actions">
+    ${editing ? `<button class="ghost-button" data-cancel-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(recordType)}" type="button">Cancelar</button>` : ""}
+    <button class="primary-button" data-save-module-record type="button">${editing ? "Salvar alterações" : "Adicionar registro"}</button>
+  </div>`;
+}
+
+function renderHrModule(tenant) {
+  const vacancies = recordsFor("hr", "vacancy");
+  const candidates = recordsFor("hr", "candidate");
+  const openVacancies = vacancies.filter((record) => record.status === "Aberta");
+  const inScreening = candidates.filter((record) => ["Triagem automática", "Entrevista Nexa"].includes(record.status));
+  const recommended = candidates.filter((record) => record.status === "Recomendado");
+  const vacancyEdit = editingRecord("hr", "vacancy");
+  const candidateEdit = editingRecord("hr", "candidate");
+  const tenantCode = tenant.code || tenant.id;
+
+  return `
+    ${metricCards([
+      { label: "Vagas abertas", value: openVacancies.length, detail: `${vacancies.length} vaga(s) cadastrada(s)`, tone: "info" },
+      { label: "Candidatos", value: candidates.length, detail: "Banco da franquia", tone: "purple" },
+      { label: "Em triagem", value: inScreening.length, detail: "Análise e entrevistas", tone: "warning" },
+      { label: "Recomendados", value: recommended.length, detail: "Aderência validada", tone: "success" },
+    ])}
+    <section class="department-toolbar panel">
+      <div><span class="eyebrow">Página pública</span><h2>Portal de vagas da franquia</h2><p>Vagas marcadas como públicas aparecem automaticamente para candidatos.</p></div>
+      <a class="ghost-button" href="?careers=${encodeURIComponent(tenantCode)}" target="_blank" rel="noopener">Abrir página pública</a>
+    </section>
+    ${canManageTenant() ? `<div class="department-form-layout">
+      ${renderVacancyForm(vacancyEdit)}
+      ${renderCandidateForm(candidateEdit, vacancies)}
+    </div>` : ""}
+    <section class="panel department-section">
+      <div class="section-title-row"><div><span class="eyebrow">Recrutamento</span><h2>Vagas</h2></div><span class="badge info">${vacancies.length} registro(s)</span></div>
+      ${vacancies.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Vaga</th><th>Local / modelo</th><th>Quantidade</th><th>Publicação</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+        ${vacancies.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "department", "Sem departamento"))}</small></td><td>${escapeHtml(recordValue(record, "city", "Não informado"))}<small>${escapeHtml(recordValue(record, "workType", "Não informado"))}</small></td><td>${escapeHtml(recordValue(record, "quantity", "1"))}</td><td><span class="badge ${recordValue(record, "public", true) ? "done" : "empty-status"}">${recordValue(record, "public", true) ? "Pública" : "Interna"}</span></td><td>${recordStatusSelect("hr", record, ["Aberta", "Pausada", "Encerrada"])}</td><td>${moduleRecordActions("hr", record)}</td></tr>`).join("")}
+      </tbody></table></div>` : empty("Nenhuma vaga cadastrada.")}
+    </section>
+    <section class="panel department-section">
+      <div class="section-title-row"><div><span class="eyebrow">Pipeline</span><h2>Candidatos</h2></div><span class="badge info">${candidates.length} pessoa(s)</span></div>
+      ${candidates.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Candidato</th><th>Vaga</th><th>Aderência</th><th>Contato</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+        ${candidates.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "skills", "Competências não informadas"))}</small></td><td>${escapeHtml(recordValue(record, "vacancyTitle", "Candidatura geral"))}</td><td>${candidateScore(record)}</td><td>${escapeHtml(recordValue(record, "email", ""))}<small>${escapeHtml(recordValue(record, "phone", ""))}</small></td><td>${recordStatusSelect("hr", record, ["Recebido", "Triagem automática", "Entrevista Nexa", "Recomendado", "Contratado", "Reprovado"])}</td><td>${moduleRecordActions("hr", record)}</td></tr>`).join("")}
+      </tbody></table></div>` : empty("Nenhum candidato recebido.")}
+    </section>`;
+}
+
+function renderVacancyForm(record) {
+  return `<section class="panel department-form-card"><div><span class="eyebrow">${record ? "Editar vaga" : "Nova vaga"}</span><h2>${record ? escapeHtml(record.title) : "Publicar oportunidade"}</h2></div>
+    <form class="record-form-grid" data-module-record-form data-module-code="hr" data-record-type="vacancy" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="title">
+      <label class="span-2">Título da vaga<input name="title" value="${escapeHtml(recordValue(record, "title"))}" required placeholder="Ex.: Recepcionista" /></label>
+      <label>Departamento<input name="department" value="${escapeHtml(recordValue(record, "department"))}" placeholder="Ex.: Atendimento" /></label>
+      <label>Modelo<select name="workType">${["Presencial", "Híbrido", "Remoto"].map((value) => recordOption(value, value, recordValue(record, "workType", "Presencial"))).join("")}</select></label>
+      <label>Cidade<input name="city" value="${escapeHtml(recordValue(record, "city", moduleUnit()?.city || ""))}" /></label>
+      <label>Quantidade<input name="quantity" type="number" min="1" value="${escapeHtml(recordValue(record, "quantity", "1"))}" /></label>
+      <label>Faixa salarial<input name="salary" value="${escapeHtml(recordValue(record, "salary"))}" placeholder="Ex.: R$ 1.800 a R$ 2.200" /></label>
+      <label>Status<select name="status">${["Aberta", "Pausada", "Encerrada"].map((value) => recordOption(value, value, recordValue(record, "status", "Aberta"))).join("")}</select></label>
+      <label class="span-2">Requisitos<textarea name="requirements" placeholder="Formação, experiência e competências">${escapeHtml(recordValue(record, "requirements"))}</textarea></label>
+      <label class="span-2">Descrição<textarea name="description" placeholder="Responsabilidades e rotina da vaga">${escapeHtml(recordValue(record, "description"))}</textarea></label>
+      <label class="checkbox-field span-2"><input name="public" type="checkbox"${recordValue(record, "public", true) ? " checked" : ""} /><span>Exibir esta vaga na página pública</span></label>
+      ${formActions("hr", "vacancy", record)}
+    </form></section>`;
+}
+
+function renderCandidateForm(record, vacancies) {
+  return `<section class="panel department-form-card"><div><span class="eyebrow">${record ? "Editar candidato" : "Cadastro manual"}</span><h2>${record ? escapeHtml(record.title) : "Adicionar candidato"}</h2></div>
+    <form class="record-form-grid" data-module-record-form data-module-code="hr" data-record-type="candidate" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="name">
+      <label class="span-2">Nome<input name="name" value="${escapeHtml(recordValue(record, "title"))}" required /></label>
+      <label>E-mail<input name="email" type="email" value="${escapeHtml(recordValue(record, "email"))}" /></label>
+      <label>Telefone<input name="phone" value="${escapeHtml(recordValue(record, "phone"))}" /></label>
+      <label>Vaga<select name="vacancyId"><option value="">Candidatura geral</option>${vacancies.map((vacancy) => recordOption(vacancy.id, vacancy.title, recordValue(record, "vacancyId"))).join("")}</select></label>
+      <label>Status<select name="status">${["Recebido", "Triagem automática", "Entrevista Nexa", "Recomendado", "Contratado", "Reprovado"].map((value) => recordOption(value, value, recordValue(record, "status", "Recebido"))).join("")}</select></label>
+      <label>Experiência (anos)<input name="experienceYears" type="number" min="0" value="${escapeHtml(recordValue(record, "experienceYears", "0"))}" /></label>
+      <label>LinkedIn / currículo<input name="resumeUrl" type="url" value="${escapeHtml(recordValue(record, "resumeUrl"))}" /></label>
+      <label class="span-2">Competências<input name="skills" value="${escapeHtml(recordValue(record, "skills"))}" placeholder="Atendimento, Excel, vendas" /></label>
+      <label class="span-2">Resumo profissional<textarea name="summary">${escapeHtml(recordValue(record, "summary"))}</textarea></label>
+      ${formActions("hr", "candidate", record)}
+    </form></section>`;
+}
+
+function candidateScore(record) {
+  const score = Number(recordValue(record, "score", 0));
+  if (!score) return '<span class="badge empty-status">Não analisado</span>';
+  const tone = score >= 75 ? "done" : score >= 50 ? "progress" : "pending";
+  return `<span class="badge ${tone}" title="${escapeHtml(recordValue(record, "analysisSummary", "Classificação automática"))}">${score}%</span>`;
+}
+
+function renderDpModule() {
+  const employees = recordsFor("dp", "employee");
+  const payrolls = recordsFor("dp", "payroll");
+  const active = employees.filter((record) => record.status === "Ativo");
+  const openPayroll = payrolls.filter((record) => !["Fechada", "Paga"].includes(record.status));
+  const employeeEdit = editingRecord("dp", "employee");
+  const payrollEdit = editingRecord("dp", "payroll");
+  return `
+    ${metricCards([
+      { label: "Colaboradores ativos", value: active.length, detail: `${employees.length} cadastro(s)`, tone: "success" },
+      { label: "Admissões", value: employees.filter((r) => isCurrentMonth(recordValue(r, "admissionDate"))).length, detail: "No mês atual", tone: "info" },
+      { label: "Folhas abertas", value: openPayroll.length, detail: `${payrolls.length} competência(s)`, tone: "warning" },
+      { label: "Afastados / férias", value: employees.filter((r) => ["Afastado", "Férias"].includes(r.status)).length, detail: "Movimentações atuais", tone: "purple" },
+    ])}
+    ${canManageTenant() ? `<div class="department-form-layout">${renderEmployeeForm(employeeEdit)}${renderPayrollForm(payrollEdit)}</div>` : ""}
+    <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Pessoas</span><h2>Colaboradores</h2></div></div>
+      ${employees.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Colaborador</th><th>Cargo</th><th>Admissão</th><th>Salário</th><th>Status</th><th>Ações</th></tr></thead><tbody>${employees.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "cpf", "CPF não informado"))}</small></td><td>${escapeHtml(recordValue(record, "role"))}<small>${escapeHtml(recordValue(record, "department"))}</small></td><td>${displayDate(recordValue(record, "admissionDate"))}</td><td>${money(recordValue(record, "salary"))}</td><td>${recordStatusSelect("dp", record, ["Ativo", "Férias", "Afastado", "Desligado"])}</td><td>${moduleRecordActions("dp", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum colaborador cadastrado.")}
+    </section>
+    <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Folha</span><h2>Competências</h2></div></div>
+      ${payrolls.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Competência</th><th>Bruto</th><th>Descontos</th><th>Líquido</th><th>Vencimento</th><th>Status</th><th>Ações</th></tr></thead><tbody>${payrolls.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong></td><td>${money(recordValue(record, "gross"))}</td><td>${money(recordValue(record, "discounts"))}</td><td><strong>${money(recordValue(record, "net"))}</strong></td><td>${displayDate(recordValue(record, "dueDate"))}</td><td>${recordStatusSelect("dp", record, ["Aberta", "Em conferência", "Fechada", "Paga"])}</td><td>${moduleRecordActions("dp", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhuma competência cadastrada.")}
+    </section>`;
+}
+
+function renderEmployeeForm(record) {
+  return `<section class="panel department-form-card"><div><span class="eyebrow">${record ? "Editar cadastro" : "Novo colaborador"}</span><h2>Cadastro funcional</h2></div><form class="record-form-grid" data-module-record-form data-module-code="dp" data-record-type="employee" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="name">
+    <label class="span-2">Nome completo<input name="name" value="${escapeHtml(recordValue(record, "title"))}" required /></label><label>CPF<input name="cpf" value="${escapeHtml(recordValue(record, "cpf"))}" /></label><label>Cargo<input name="role" value="${escapeHtml(recordValue(record, "role"))}" required /></label><label>Departamento<input name="department" value="${escapeHtml(recordValue(record, "department"))}" /></label><label>Admissão<input name="admissionDate" type="date" value="${escapeHtml(recordValue(record, "admissionDate"))}" /></label><label>Salário<input name="salary" type="number" min="0" step="0.01" value="${escapeHtml(recordValue(record, "salary"))}" /></label><label>Status<select name="status">${["Ativo", "Férias", "Afastado", "Desligado"].map((value) => recordOption(value, value, recordValue(record, "status", "Ativo"))).join("")}</select></label>${formActions("dp", "employee", record)}</form></section>`;
+}
+
+function renderPayrollForm(record) {
+  return `<section class="panel department-form-card"><div><span class="eyebrow">${record ? "Editar folha" : "Nova competência"}</span><h2>Controle de folha</h2></div><form class="record-form-grid" data-module-record-form data-module-code="dp" data-record-type="payroll" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="competence">
+    <label>Competência<input name="competence" type="month" value="${escapeHtml(recordValue(record, "title"))}" required /></label><label>Status<select name="status">${["Aberta", "Em conferência", "Fechada", "Paga"].map((value) => recordOption(value, value, recordValue(record, "status", "Aberta"))).join("")}</select></label><label>Valor bruto<input name="gross" type="number" min="0" step="0.01" value="${escapeHtml(recordValue(record, "gross"))}" /></label><label>Descontos<input name="discounts" type="number" min="0" step="0.01" value="${escapeHtml(recordValue(record, "discounts"))}" /></label><label>Valor líquido<input name="net" type="number" min="0" step="0.01" value="${escapeHtml(recordValue(record, "net"))}" /></label><label>Vencimento<input name="dueDate" type="date" value="${escapeHtml(recordValue(record, "dueDate"))}" /></label><label class="span-2">Observações<textarea name="notes">${escapeHtml(recordValue(record, "notes"))}</textarea></label>${formActions("dp", "payroll", record)}</form></section>`;
+}
+
+function renderAccountingModule() {
+  const documents = recordsFor("accounting", "document");
+  const sent = documents.filter((record) => ["Enviado", "Em conferência", "Devolvido"].includes(record.status));
+  const reviewing = documents.filter((record) => record.status === "Em conferência");
+  const returned = documents.filter((record) => record.status === "Devolvido");
+  return `
+    ${metricCards([
+      { label: "Documentos", value: documents.length, detail: "No histórico da franquia", tone: "info" },
+      { label: "Enviados", value: sent.length, detail: "Recebidos pela contabilidade", tone: "success" },
+      { label: "Em conferência", value: reviewing.length, detail: "Aguardando análise", tone: "warning" },
+      { label: "Devolvidos", value: returned.length, detail: "Processamento concluído", tone: "purple" },
+    ])}
+    ${canManageTenant() ? renderAccountingForm(editingRecord("accounting", "document")) : ""}
+    <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Central contábil</span><h2>Documentos por competência</h2></div></div>
+      ${documents.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Documento</th><th>Competência</th><th>Prazo</th><th>Responsável</th><th>Anexo</th><th>Status</th><th>Ações</th></tr></thead><tbody>${documents.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "notes", "Sem observações"))}</small></td><td>${escapeHtml(recordValue(record, "competence", "Não informada"))}</td><td>${displayDate(recordValue(record, "dueDate"))}</td><td>${escapeHtml(recordValue(record, "responsible", "Não informado"))}</td><td>${attachmentSummary(recordValue(record, "attachment"))}</td><td>${recordStatusSelect("accounting", record, ["Solicitado", "Enviado", "Em conferência", "Correção solicitada", "Devolvido"])}</td><td>${moduleRecordActions("accounting", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum documento contábil cadastrado.")}
+    </section>`;
+}
+
+function renderAccountingForm(record) {
+  const unit = moduleUnit();
+  const categories = ["Abertura de empresa", "Cartão CNPJ", "Certidões", "Extrato bancário", "NFC-e", "NF-e", "CT-e", "Guias de impostos", "DRE", "Balancete", "Outros"];
+  return `<section class="panel department-form-card department-form-wide"><div><span class="eyebrow">${record ? "Editar documento" : "Novo envio"}</span><h2>Documento contábil</h2></div><form class="record-form-grid accounting-form-grid" data-module-record-form data-module-code="accounting" data-record-type="document" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="category">
+    <label>Categoria<select name="category">${categories.map((value) => recordOption(value, value, recordValue(record, "title", categories[0]))).join("")}</select></label><label>Competência<input name="competence" type="month" value="${escapeHtml(recordValue(record, "competence"))}" /></label><label>Prazo<input name="dueDate" type="date" value="${escapeHtml(recordValue(record, "dueDate"))}" /></label><label>Status<select name="status">${["Solicitado", "Enviado", "Em conferência", "Correção solicitada", "Devolvido"].map((value) => recordOption(value, value, recordValue(record, "status", "Enviado"))).join("")}</select></label><label>Responsável<input name="responsible" value="${escapeHtml(recordValue(record, "responsible"))}" /></label><div class="module-form-field span-2"><span>Arquivo</span>${unit ? attachmentControl(recordValue(record, "attachment"), unit, "documentos-contabeis", 'name="attachment"', "accounting") : '<input name="attachment" disabled />'}</div><label class="span-2">Observações<textarea name="notes">${escapeHtml(recordValue(record, "notes"))}</textarea></label>${formActions("accounting", "document", record)}</form></section>`;
+}
+
+function attachmentSummary(value) {
+  const parsed = parseFileReference(value);
+  return parsed.name ? `<span class="badge done">${escapeHtml(parsed.name)}</span>` : '<span class="badge empty-status">Sem anexo</span>';
+}
+
+function renderFinanceModule() {
+  const transactions = recordsFor("finance", "transaction");
+  const receivable = transactions.filter((record) => recordValue(record, "type") === "Receita" && record.status !== "Pago").reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0);
+  const payable = transactions.filter((record) => recordValue(record, "type") === "Despesa" && record.status !== "Pago").reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0);
+  const paidIncome = transactions.filter((record) => recordValue(record, "type") === "Receita" && record.status === "Pago").reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0);
+  const paidExpense = transactions.filter((record) => recordValue(record, "type") === "Despesa" && record.status === "Pago").reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0);
+  const overdue = transactions.filter((record) => record.status === "Vencido" || (record.status === "Pendente" && isPastDate(recordValue(record, "dueDate"))));
+  return `
+    ${metricCards([
+      { label: "Saldo realizado", value: money(paidIncome - paidExpense), detail: "Receitas menos despesas pagas", tone: paidIncome - paidExpense >= 0 ? "success" : "danger" },
+      { label: "A receber", value: money(receivable), detail: "Receitas em aberto", tone: "info" },
+      { label: "A pagar", value: money(payable), detail: "Despesas em aberto", tone: "warning" },
+      { label: "Vencidos", value: overdue.length, detail: money(overdue.reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0)), tone: "danger" },
+    ])}
+    ${canManageTenant() ? renderFinanceForm(editingRecord("finance", "transaction")) : ""}
+    <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Movimentações</span><h2>Contas a pagar e receber</h2></div><span class="badge info">${transactions.length} lançamento(s)</span></div>
+      ${transactions.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Pagamento</th><th>Status</th><th>Ações</th></tr></thead><tbody>${transactions.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "account", "Conta não informada"))}</small></td><td><span class="badge ${recordValue(record, "type") === "Receita" ? "done" : "pending"}">${escapeHtml(recordValue(record, "type"))}</span></td><td>${escapeHtml(recordValue(record, "category"))}</td><td><strong>${money(recordValue(record, "amount"))}</strong></td><td>${displayDate(recordValue(record, "dueDate"))}</td><td>${displayDate(recordValue(record, "paidDate"))}</td><td>${recordStatusSelect("finance", record, ["Previsto", "Pendente", "Pago", "Vencido", "Cancelado"])}</td><td>${moduleRecordActions("finance", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum lançamento financeiro cadastrado.")}
+    </section>`;
+}
+
+function renderFinanceForm(record) {
+  return `<section class="panel department-form-card department-form-wide"><div><span class="eyebrow">${record ? "Editar lançamento" : "Novo lançamento"}</span><h2>Conta a pagar ou receber</h2></div><form class="record-form-grid finance-form-grid" data-module-record-form data-module-code="finance" data-record-type="transaction" data-record-id="${escapeHtml(record?.id || "")}" data-title-field="description">
+    <label>Tipo<select name="type">${["Receita", "Despesa"].map((value) => recordOption(value, value, recordValue(record, "type", "Despesa"))).join("")}</select></label><label class="span-2">Descrição<input name="description" value="${escapeHtml(recordValue(record, "title"))}" required /></label><label>Categoria<input name="category" value="${escapeHtml(recordValue(record, "category"))}" /></label><label>Valor<input name="amount" type="number" min="0" step="0.01" value="${escapeHtml(recordValue(record, "amount"))}" required /></label><label>Vencimento<input name="dueDate" type="date" value="${escapeHtml(recordValue(record, "dueDate"))}" /></label><label>Pagamento<input name="paidDate" type="date" value="${escapeHtml(recordValue(record, "paidDate"))}" /></label><label>Conta / meio<input name="account" value="${escapeHtml(recordValue(record, "account"))}" /></label><label>Status<select name="status">${["Previsto", "Pendente", "Pago", "Vencido", "Cancelado"].map((value) => recordOption(value, value, recordValue(record, "status", "Previsto"))).join("")}</select></label><label class="span-2">Observações<textarea name="notes">${escapeHtml(recordValue(record, "notes"))}</textarea></label>${formActions("finance", "transaction", record)}</form></section>`;
+}
+
+async function saveModuleRecord(button) {
+  const form = button.closest("[data-module-record-form]");
+  if (!form || !form.reportValidity()) return;
+  const moduleCode = form.dataset.moduleCode;
+  const recordType = form.dataset.recordType;
+  const formData = new FormData(form);
+  form.querySelectorAll('input[type="checkbox"][name]').forEach((input) => formData.set(input.name, String(input.checked)));
+  const values = Object.fromEntries(formData.entries());
+  const titleField = form.dataset.titleField || "title";
+  const titleValue = values[titleField] || "Registro";
+  const vacancy = recordType === "candidate" ? recordsFor("hr", "vacancy").find((item) => item.id === values.vacancyId) : null;
+  const payload = { ...values };
+  delete payload.status;
+  delete payload[titleField];
+  if (Object.prototype.hasOwnProperty.call(payload, "public")) payload.public = payload.public === "true";
+  if (vacancy) payload.vacancyTitle = vacancy.title;
+  const key = moduleRecordKey(moduleCode);
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  try {
+    let saved;
+    if (supabaseEnabled && state.auth?.token) {
+      saved = await supabaseRpc("upsert_module_record", {
+        p_token: state.auth.token,
+        p_tenant_id: currentTenantId(),
+        p_unit_id: moduleUnit()?.id || null,
+        p_module_code: moduleCode,
+        p_record_type: recordType,
+        p_title: String(titleValue),
+        p_status: values.status || "Ativo",
+        p_payload: payload,
+        p_record_id: form.dataset.recordId || null,
+      });
+    } else {
+      saved = {
+        id: form.dataset.recordId || `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        tenantId: currentTenantId(), unitId: moduleUnit()?.id || null, moduleCode, recordType,
+        title: String(titleValue), status: values.status || "Ativo", payload,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+    }
+    const current = state.departmentRecords[key] || [];
+    const index = current.findIndex((record) => record.id === saved.id);
+    if (index >= 0) current[index] = saved; else current.unshift(saved);
+    state.departmentRecords[key] = current;
+    delete state.moduleEditing[moduleEditKey(moduleCode, recordType)];
+    writeStorage("departmentRecords", state.departmentRecords);
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível salvar o registro.");
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+function editModuleRecord(button) {
+  state.moduleEditing[moduleEditKey(button.dataset.moduleCode, button.dataset.recordType)] = button.dataset.recordId;
+  render();
+  app.querySelector("[data-module-record-form][data-record-id]:not([data-record-id=''])")?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function cancelModuleRecord(button) {
+  delete state.moduleEditing[moduleEditKey(button.dataset.moduleCode, button.dataset.recordType)];
+  render();
+}
+
+async function deleteModuleRecord(button) {
+  const moduleCode = button.dataset.moduleCode;
+  const id = button.dataset.recordId;
+  const record = recordsFor(moduleCode).find((item) => item.id === id);
+  if (!record || !window.confirm(`Excluir ${record.title}?`)) return;
+  try {
+    if (supabaseEnabled && state.auth?.token) {
+      await supabaseRpc("delete_module_record", { p_token: state.auth.token, p_tenant_id: currentTenantId(), p_module_code: moduleCode, p_record_id: id });
+    }
+    const key = moduleRecordKey(moduleCode);
+    state.departmentRecords[key] = (state.departmentRecords[key] || []).filter((item) => item.id !== id);
+    writeStorage("departmentRecords", state.departmentRecords);
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível excluir o registro.");
+  }
+}
+
+async function updateModuleRecordStatus(select) {
+  const moduleCode = select.dataset.moduleCode;
+  const record = recordsFor(moduleCode).find((item) => item.id === select.dataset.recordId);
+  if (!record) return;
+  const previous = record.status;
+  record.status = select.value;
+  select.className = `${statusClass(select.value)} module-record-status`;
+  try {
+    if (supabaseEnabled && state.auth?.token) {
+      const saved = await supabaseRpc("upsert_module_record", {
+        p_token: state.auth.token, p_tenant_id: currentTenantId(), p_unit_id: record.unitId || moduleUnit()?.id || null,
+        p_module_code: moduleCode, p_record_type: record.recordType, p_title: record.title,
+        p_status: select.value, p_payload: record.payload || {}, p_record_id: record.id,
+      });
+      Object.assign(record, saved);
+    }
+    writeStorage("departmentRecords", state.departmentRecords);
+    render();
+  } catch (error) {
+    record.status = previous;
+    alert(error.message || "Não foi possível alterar o status.");
+    render();
+  }
+}
+
+function numberValue(value) {
+  const number = Number(String(value ?? 0).replace(",", "."));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function money(value) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(numberValue(value));
+}
+
+function displayDate(value) {
+  if (!value) return "Sem data";
+  const [year, month, day] = String(value).slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : escapeHtml(value);
+}
+
+function isPastDate(value) {
+  return Boolean(value && new Date(`${value}T23:59:59`) < new Date());
+}
+
+function isCurrentMonth(value) {
+  if (!value) return false;
+  const date = new Date(`${value}T12:00:00`);
+  const now = new Date();
+  return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
 }
 
 function renderAdminCenter() {
@@ -3470,13 +3984,13 @@ function statusBadge(label, forcedClass) {
 
 function statusClass(status) {
   const value = normalizeText(status);
-  if (value.includes("conclu") || value.includes("aprov") || value.includes("fechado")) return "done";
-  if (value.includes("andamento")) return "progress";
-  if (value.includes("analise")) return "review";
+  if (value.includes("conclu") || value.includes("aprov") || value.includes("fechado") || value === "ativo" || value === "pago" || value.includes("devolvido") || value.includes("recomendado") || value.includes("contratado") || value.includes("enviado")) return "done";
+  if (value.includes("andamento") || value.includes("triagem") || value.includes("entrevista") || value.includes("conferencia") || value.includes("ferias")) return "progress";
+  if (value.includes("analise") || value.includes("recebido")) return "review";
   if (value.includes("negociacao")) return "negotiation";
-  if (value.includes("reprov") || value.includes("recus")) return "rejected";
+  if (value.includes("reprov") || value.includes("recus") || value.includes("cancelado") || value.includes("desligado")) return "rejected";
   if (value.includes("vazio") || value.includes("sem status")) return "empty-status";
-  if (value.includes("pend")) return "pending";
+  if (value.includes("pend") || value.includes("vencido") || value.includes("correcao") || value.includes("afastado")) return "pending";
   return "info";
 }
 
