@@ -2652,15 +2652,13 @@ textarea:focus {
 }
 
 .pendency-save-bar {
-  position: sticky;
-  bottom: 14px;
-  z-index: 2;
+  position: static;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
   border: 1px solid rgba(74, 144, 226, 0.14);
-  border-radius: 999px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 18px 42px rgba(0, 35, 102, 0.12);
   margin-top: 14px;
@@ -6266,4 +6264,303 @@ select.empty-status:focus {
 .app-shell.dark-theme .admin-user-copy span,
 .app-shell.dark-theme .admin-request-list span {
   color: #a4aeb8;
+}
+
+/* Complete dark surface system. Keep this block last so light cleanup rules cannot win. */
+.app-shell.dark-theme {
+  --ink: #edf1f5;
+  --muted: #9da8b3;
+  --line: #303943;
+  --panel: #171d23;
+  --page: #101419;
+}
+
+.app-shell.dark-theme .sidebar,
+.app-shell.dark-theme .topbar,
+.app-shell.dark-theme .panel,
+.app-shell.dark-theme .toolbar-panel,
+.app-shell.dark-theme .unit-workspace,
+.app-shell.dark-theme .unit-card,
+.app-shell.dark-theme .franchise-grid .unit-card,
+.app-shell.dark-theme .blocker-list .unit-card,
+.app-shell.dark-theme .module-page-head,
+.app-shell.dark-theme .module-active-hero,
+.app-shell.dark-theme .module-lock-panel,
+.app-shell.dark-theme .admin-section,
+.app-shell.dark-theme .implantation-hero-panel,
+.app-shell.dark-theme .unit-focus-hero,
+.app-shell.dark-theme .admin-hero,
+.app-shell.dark-theme .record-form,
+.app-shell.dark-theme .kanban-column,
+.app-shell.dark-theme .task-chip,
+.app-shell.dark-theme .schedule-hero,
+.app-shell.dark-theme .profile-menu {
+  border-color: #303943;
+  background: #171d23;
+  color: #dce2e8;
+  box-shadow: none;
+}
+
+.app-shell.dark-theme .unit-card header strong,
+.app-shell.dark-theme .unit-card button,
+.app-shell.dark-theme .unit-workspace-head,
+.app-shell.dark-theme .unit-workspace-head strong,
+.app-shell.dark-theme .panel h2,
+.app-shell.dark-theme .panel h3,
+.app-shell.dark-theme .record-form h3,
+.app-shell.dark-theme .schedule-hero strong,
+.app-shell.dark-theme .summary-card strong,
+.app-shell.dark-theme .franchise-meta-grid strong,
+.app-shell.dark-theme .phase-row,
+.app-shell.dark-theme .task-chip strong,
+.app-shell.dark-theme .donut-chart strong,
+.app-shell.dark-theme .donut-legend strong,
+.app-shell.dark-theme .section-title-row h2 {
+  color: #edf1f5;
+}
+
+.app-shell.dark-theme .meta,
+.app-shell.dark-theme .unit-workspace-head small,
+.app-shell.dark-theme .summary-card span,
+.app-shell.dark-theme .franchise-meta-grid small,
+.app-shell.dark-theme .schedule-hero span,
+.app-shell.dark-theme .schedule-hero small,
+.app-shell.dark-theme .workspace-table td small,
+.app-shell.dark-theme .task-chip span,
+.app-shell.dark-theme .donut-chart span,
+.app-shell.dark-theme .donut-legend small,
+.app-shell.dark-theme .record-form-grid label,
+.app-shell.dark-theme .pendency-save-bar span {
+  color: #9da8b3;
+}
+
+.app-shell.dark-theme .franchise-meta-grid > span,
+.app-shell.dark-theme .franchise-meta-grid > div,
+.app-shell.dark-theme .summary-card,
+.app-shell.dark-theme .unit-summary-grid article,
+.app-shell.dark-theme .phase-grid article,
+.app-shell.dark-theme .module-metric-grid article,
+.app-shell.dark-theme .module-workflow article,
+.app-shell.dark-theme .admin-user-list article,
+.app-shell.dark-theme .admin-request-list article,
+.app-shell.dark-theme .status-overview {
+  border-color: #343e48;
+  background: #1d242b;
+  color: #dce2e8;
+}
+
+.app-shell.dark-theme .unit-workspace.expanded,
+.app-shell.dark-theme .franchise-card:hover {
+  border-color: #456171;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.app-shell.dark-theme .chevron,
+.app-shell.dark-theme .task-count,
+.app-shell.dark-theme .record-source,
+.app-shell.dark-theme .admin-scope-pill,
+.app-shell.dark-theme .module-status-pill {
+  background: #252e37;
+  color: #b9c3cc;
+}
+
+.app-shell.dark-theme .open-folder-button,
+.app-shell.dark-theme .primary-button {
+  border-color: #34839a;
+  background: #17697d;
+  color: #fff;
+}
+
+.app-shell.dark-theme .open-folder-button:hover,
+.app-shell.dark-theme .primary-button:hover,
+.app-shell.dark-theme .open-folder-button:focus-visible,
+.app-shell.dark-theme .primary-button:focus-visible {
+  border-color: #52a8bd;
+  background: #1d7a90;
+}
+
+.app-shell.dark-theme .delete-unit-button,
+.app-shell.dark-theme .danger-action,
+.app-shell.dark-theme .link-button.danger {
+  border-color: #5e3035;
+  background: #2a1b1e;
+  color: #ff8f98;
+}
+
+.app-shell.dark-theme .delete-unit-button:hover,
+.app-shell.dark-theme .danger-action:hover,
+.app-shell.dark-theme .link-button.danger:hover {
+  border-color: #88434a;
+  background: #3a2226;
+}
+
+.app-shell.dark-theme .unit-tabbar {
+  border-color: #303943;
+  background: transparent;
+}
+
+.app-shell.dark-theme .unit-tabbar button,
+.app-shell.dark-theme .view-tab {
+  border-color: #3a4550;
+  background: #171d23;
+  color: #aeb8c2;
+}
+
+.app-shell.dark-theme .unit-tabbar button:hover,
+.app-shell.dark-theme .view-tab:hover {
+  border-color: #52626d;
+  background: #202830;
+  color: #eef3f6;
+}
+
+.app-shell.dark-theme .unit-tabbar button.active,
+.app-shell.dark-theme .view-tab.active {
+  border-color: #4c7180;
+  background: #243740;
+  color: #b9e4ef;
+}
+
+.app-shell.dark-theme .schedule-ring {
+  background:
+    radial-gradient(circle at center, #171d23 0 54%, transparent 55%),
+    conic-gradient(var(--schedule-color, var(--brand)) var(--value), #343e48 0);
+}
+
+.app-shell.dark-theme .bar,
+.app-shell.dark-theme .stacked-bar,
+.app-shell.dark-theme .kpi-segments i {
+  background: #303943;
+}
+
+.app-shell.dark-theme .donut-chart::before {
+  background: #171d23;
+}
+
+.app-shell.dark-theme .donut-legend > div {
+  border-color: #303943;
+}
+
+.app-shell.dark-theme .chart-row {
+  border-color: #303943;
+  color: #dce2e8;
+}
+
+.app-shell.dark-theme .chart-row:hover,
+.app-shell.dark-theme .chart-row:focus-visible,
+.app-shell.dark-theme .workspace-table tbody tr:hover {
+  background: #20272e;
+}
+
+.app-shell.dark-theme thead th {
+  border-color: #343e48;
+  background: #20272e;
+  color: #aeb8c2;
+}
+
+.app-shell.dark-theme tbody td {
+  border-color: #2d3640;
+  color: #d3dae1;
+}
+
+.app-shell.dark-theme tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.app-shell.dark-theme input,
+.app-shell.dark-theme select,
+.app-shell.dark-theme textarea,
+.app-shell.dark-theme .table-input,
+.app-shell.dark-theme .table-textarea,
+.app-shell.dark-theme .attachment-picker,
+.app-shell.dark-theme .icon-text-button,
+.app-shell.dark-theme .link-button {
+  border-color: #3a4550;
+  background: #12171c;
+  color: #e2e7ec;
+}
+
+.app-shell.dark-theme input:focus,
+.app-shell.dark-theme select:focus,
+.app-shell.dark-theme textarea:focus,
+.app-shell.dark-theme .attachment-picker:focus-within {
+  border-color: #4f91aa;
+  box-shadow: 0 0 0 3px rgba(79, 145, 170, 0.16);
+}
+
+.app-shell.dark-theme input::placeholder,
+.app-shell.dark-theme textarea::placeholder {
+  color: #74808c;
+}
+
+.app-shell.dark-theme .alert-list article {
+  border-color: #583239;
+  background: #2a1d21;
+}
+
+.app-shell.dark-theme .alert-list strong {
+  color: #ff99a2;
+}
+
+.app-shell.dark-theme .alert-list span {
+  color: #e1b8bc;
+}
+
+.app-shell.dark-theme .pendency-save-bar {
+  border-color: #3c4954;
+  background: rgba(29, 36, 43, 0.96);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.app-shell.dark-theme .badge.done,
+.app-shell.dark-theme select.done,
+.app-shell.dark-theme .module-status-pill.active,
+.app-shell.dark-theme .module-status-select.active {
+  background: #173529;
+  color: #75d5ae;
+}
+
+.app-shell.dark-theme .badge.progress,
+.app-shell.dark-theme select.progress,
+.app-shell.dark-theme .badge.review,
+.app-shell.dark-theme select.review,
+.app-shell.dark-theme .badge.negotiation,
+.app-shell.dark-theme select.negotiation,
+.app-shell.dark-theme .module-status-pill.requested,
+.app-shell.dark-theme .module-status-select.requested {
+  background: #382d18;
+  color: #f1c66c;
+}
+
+.app-shell.dark-theme .badge.pending,
+.app-shell.dark-theme select.pending,
+.app-shell.dark-theme .badge.rejected,
+.app-shell.dark-theme select.rejected,
+.app-shell.dark-theme .critical,
+.app-shell.dark-theme .module-status-pill.suspended,
+.app-shell.dark-theme .module-status-select.suspended {
+  background: #3a2025;
+  color: #ff98a2;
+}
+
+.app-shell.dark-theme .badge.info,
+.app-shell.dark-theme select.info,
+.app-shell.dark-theme .badge.empty-status,
+.app-shell.dark-theme select.empty-status,
+.app-shell.dark-theme .module-status-select.locked {
+  background: #20323b;
+  color: #8bc5d9;
+}
+
+.app-shell.dark-theme .attachment-control.has-file .attachment-picker {
+  border-color: #315746;
+  background: #172820;
+  color: #a7dfc6;
+}
+
+.app-shell.dark-theme .permission-banner,
+.app-shell.dark-theme .admin-preview-banner,
+.app-shell.dark-theme .user-confirmation-note {
+  border-color: #36515d;
+  background: #1b2b32;
+  color: #acd1df;
 }
