@@ -13,6 +13,8 @@ const state = {
   },
   dashboardUnit: "all",
   dashboardTab: "overview",
+  adminTab: "overview",
+  theme: readStorage("appTheme", "light"),
   expandedUnitId: "",
   franchiseWorkspaceUnitId: "",
   unitTabs: readStorage("franchiseUnitTabs", {}),
@@ -54,6 +56,7 @@ const profileAvatarPreview = document.querySelector("#profile-avatar-preview");
 const profileNameInput = document.querySelector("#profile-name-input");
 const profilePhotoInput = document.querySelector("#profile-photo-input");
 const profileSave = document.querySelector("#profile-save");
+const themeToggle = document.querySelector("#theme-toggle");
 
 updateSourceCount();
 
@@ -93,6 +96,7 @@ globalSearch.addEventListener("input", (event) => {
 
 exportButton.addEventListener("click", exportCurrentView);
 logoutButton.addEventListener("click", logout);
+themeToggle.addEventListener("click", toggleTheme);
 profileToggle.addEventListener("click", () => {
   const isOpen = !profileMenu.hidden;
   profileMenu.hidden = isOpen;
@@ -162,6 +166,12 @@ app.addEventListener("click", (event) => {
   const dashboardTab = event.target.closest("[data-dashboard-tab]");
   if (dashboardTab) {
     state.dashboardTab = dashboardTab.dataset.dashboardTab;
+    render();
+  }
+
+  const adminTab = event.target.closest("[data-admin-tab]");
+  if (adminTab) {
+    state.adminTab = adminTab.dataset.adminTab;
     render();
   }
 
@@ -247,9 +257,6 @@ app.addEventListener("click", (event) => {
     writeStorage("franchiseDrafts", state.drafts);
     render();
   }
-
-  const requestModuleButton = event.target.closest("[data-request-module]");
-  if (requestModuleButton) requestModule(requestModuleButton.dataset.requestModule, requestModuleButton);
 
   const createPortalUserButton = event.target.closest("[data-create-portal-user]");
   if (createPortalUserButton) adminCreatePortalUser(createPortalUserButton);
@@ -348,10 +355,25 @@ function showApp() {
   landingScreen.hidden = true;
   loginScreen.hidden = true;
   appShell.hidden = false;
+  applyTheme();
   updateSourceCount();
   updateProfileUI();
   updateNavigationAccess();
   render();
+}
+
+function toggleTheme() {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  writeStorage("appTheme", state.theme);
+  applyTheme();
+}
+
+function applyTheme() {
+  const dark = state.theme === "dark";
+  appShell.classList.toggle("dark-theme", dark);
+  themeToggle.setAttribute("aria-label", dark ? "Ativar tema claro" : "Ativar tema escuro");
+  themeToggle.setAttribute("title", dark ? "Usar tema claro" : "Usar tema escuro");
+  themeToggle.querySelector("span").textContent = dark ? "☀" : "◐";
 }
 
 async function login(form) {
@@ -694,7 +716,7 @@ function updateNavigationAccess() {
     const status = isPlatformAdmin() ? "admin" : tenantModuleStatus(button.dataset.moduleNav);
     button.dataset.moduleAccess = status;
     const label = button.querySelector("[data-module-state]");
-    if (label) label.textContent = status === "admin" ? "Gerenciar" : moduleStatusLabel(status);
+    if (label) label.textContent = status === "admin" ? "Visualizar" : moduleStatusLabel(status);
   });
 }
 
@@ -717,8 +739,9 @@ function renderModuleWorkspace(moduleCode) {
   const tenant = availableTenants().find((item) => item.id === tenantId);
   if (!tenant) return empty("Seu usuário ainda não está vinculado a uma franquia.");
 
-  const accessPanel = status === "active"
-    ? renderActiveModule(moduleCode, module, tenant)
+  const adminPreview = isPlatformAdmin();
+  const accessPanel = status === "active" || adminPreview
+    ? renderActiveModule(moduleCode, module, tenant, adminPreview ? status : "active")
     : renderLockedModule(moduleCode, module, tenant, status);
 
   return `
@@ -747,17 +770,18 @@ function renderLockedModule(moduleCode, module, tenant, status) {
         : suspended
           ? "Procure a administração da plataforma para regularizar o acesso deste módulo."
           : "Este é um módulo adicional do 33Doctor APP e precisa ser liberado pela administração da plataforma."}</p>
-      ${!isPlatformAdmin() && status === "locked" ? `<button class="primary-button" data-request-module="${escapeHtml(moduleCode)}" type="button">Solicitar ativação</button>` : ""}
-      ${isPlatformAdmin() ? `<button class="primary-button" data-approve-module="${escapeHtml(moduleCode)}" data-tenant-id="${escapeHtml(tenant.id)}" type="button">Ativar para esta franquia</button>` : ""}
+      <small class="module-admin-note">A liberação deste serviço é controlada exclusivamente pela Administração da plataforma.</small>
     </section>
   `;
 }
 
-function renderActiveModule(moduleCode, module, tenant) {
+function renderActiveModule(moduleCode, module, tenant, tenantStatus = "active") {
+  const previewing = isPlatformAdmin() && tenantStatus !== "active";
   return `
+    ${previewing ? `<div class="permission-banner admin-preview-banner">Prévia administrativa: este módulo está ${escapeHtml(moduleStatusLabel(tenantStatus).toLowerCase())} para ${escapeHtml(tenant.name)}. A visualização não altera a ativação do serviço.</div>` : ""}
     <section class="module-active-hero">
       <div>
-        <span class="module-status-pill active">Módulo ativo</span>
+        <span class="module-status-pill ${previewing ? "locked" : "active"}">${previewing ? "Prévia do administrador" : "Módulo ativo"}</span>
         <h3>${escapeHtml(tenant.name)}</h3>
         <p>A estrutura do departamento está pronta para receber os fluxos operacionais.</p>
       </div>
@@ -778,44 +802,77 @@ function renderActiveModule(moduleCode, module, tenant) {
 function renderAdminCenter() {
   if (!isPlatformAdmin()) return empty("Esta área é exclusiva da administração da plataforma.");
   const admin = state.adminData || { tenants: [], users: [], requests: [] };
-  const pendingRequests = admin.requests.filter((request) => request.status === "pending");
+  const requests = admin.requests || [];
+  const pendingRequests = requests.filter((request) => request.status === "pending");
   const activeModules = state.tenantModules.filter((item) => item.status === "active").length;
-  const configurableModules = Object.keys(moduleDefinitions);
 
   return `
     <section class="admin-hero">
       <div><span class="eyebrow">Controle da rede</span><h2>Central Administrativa</h2><p>Usuários, franquias, acessos e módulos em um único painel.</p></div>
       <span class="admin-scope-pill">Acesso global</span>
     </section>
+    <section class="toolbar-panel admin-toolbar">
+      <div><span class="small-label">Gestão da plataforma</span><strong>${escapeHtml(adminTabLabel(state.adminTab))}</strong></div>
+      <div class="view-tabs admin-tabs">
+        ${adminTabButton("overview", "Visão geral")}
+        ${adminTabButton("requests", `Solicitações (${pendingRequests.length})`)}
+        ${adminTabButton("activations", "Ativações")}
+        ${adminTabButton("users", "Usuários")}
+      </div>
+    </section>
+    ${renderAdminTabContent(state.adminTab, admin, requests, pendingRequests, activeModules)}
+  `;
+}
+
+function adminTabButton(key, label) {
+  return `<button class="view-tab ${state.adminTab === key ? "active" : ""}" data-admin-tab="${key}" type="button">${escapeHtml(label)}</button>`;
+}
+
+function adminTabLabel(tab) {
+  return { overview: "Visão geral", requests: "Solicitações", activations: "Ativações de serviços", users: "Usuários e acessos" }[tab] || "Visão geral";
+}
+
+function renderAdminTabContent(tab, admin, requests, pendingRequests, activeModules) {
+  if (tab === "requests") return renderAdminRequests(requests);
+  if (tab === "activations") return renderAdminActivations(admin.tenants);
+  if (tab === "users") {
+    return `<section class="admin-grid">${renderAdminUserForm(admin.tenants)}${renderAdminUsers(admin.users, admin.tenants)}</section>`;
+  }
+
+  return `
     <div class="module-metric-grid admin-metrics">
-      ${[["Franquias", admin.tenants.length], ["Usuários", admin.users.length], ["Módulos ativos", activeModules], ["Solicitações", pendingRequests.length]].map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>Atualizado agora</small></article>`).join("")}
+      ${[["Franquias", admin.tenants.length], ["Usuários confirmados", admin.users.length], ["Módulos ativos", activeModules], ["Solicitações pendentes", pendingRequests.length]].map(([label, value]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>Atualizado agora</small></article>`).join("")}
     </div>
-    ${renderAdminRequests(pendingRequests)}
+    <div class="grid two-col admin-overview-grid">
+      <section class="panel admin-section"><span class="eyebrow">Serviços</span><h2>Ativações centralizadas</h2><p>Todos os módulos adicionais são liberados exclusivamente na aba Ativações.</p><button class="ghost-button" data-admin-tab="activations" type="button">Gerenciar ativações</button></section>
+      <section class="panel admin-section"><span class="eyebrow">Fila administrativa</span><h2>${pendingRequests.length} solicitação(ões) pendente(s)</h2><p>Acompanhe pedidos e decisões na aba Solicitações.</p><button class="ghost-button" data-admin-tab="requests" type="button">Abrir solicitações</button></section>
+    </div>
+  `;
+}
+
+function renderAdminActivations(tenants) {
+  const configurableModules = Object.keys(moduleDefinitions);
+  return `
     <section class="panel admin-section">
-      <div class="section-title-row"><div><span class="eyebrow">Ativações</span><h2>Módulos por franquia</h2></div><span class="badge info">Negócios ativo por padrão</span></div>
+      <div class="section-title-row"><div><span class="eyebrow">Ativações</span><h2>Módulos por franquia</h2><p>Único local autorizado para liberar, bloquear ou suspender serviços.</p></div><span class="badge info">Negócios ativo por padrão</span></div>
       <div class="table-wrap">
         <table class="admin-module-table">
           <thead><tr><th>Franquia</th>${configurableModules.map((code) => `<th>${escapeHtml(moduleDefinitions[code].name)}</th>`).join("")}</tr></thead>
-          <tbody>${admin.tenants.map((tenant) => `<tr><td><strong>${escapeHtml(tenant.name)}</strong><small>${escapeHtml(tenant.code)}</small></td>${configurableModules.map((code) => {
+          <tbody>${tenants.map((tenant) => `<tr><td><strong>${escapeHtml(tenant.name)}</strong><small>${escapeHtml(tenant.code)}</small></td>${configurableModules.map((code) => {
             const status = tenantModuleStatus(code, tenant.id);
             return `<td><select class="module-status-select ${escapeHtml(status)}" data-admin-module-status data-tenant-id="${escapeHtml(tenant.id)}" data-module-code="${escapeHtml(code)}">${["locked", "requested", "active", "suspended"].map((option) => `<option value="${option}"${option === status ? " selected" : ""}>${moduleStatusLabel(option)}</option>`).join("")}</select></td>`;
-          }).join("")}</tr>`).join("")}</tbody>
+          }).join("")}</tr>`).join("") || `<tr><td colspan="${configurableModules.length + 1}">${empty("Nenhuma franquia cadastrada")}</td></tr>`}</tbody>
         </table>
       </div>
-    </section>
-    <section class="admin-grid">
-      ${renderAdminUserForm(admin.tenants)}
-      ${renderAdminUsers(admin.users, admin.tenants)}
     </section>
   `;
 }
 
 function renderAdminRequests(requests) {
-  if (!requests.length) return "";
   return `
     <section class="panel admin-section request-section">
-      <div class="section-title-row"><div><span class="eyebrow">Aguardando decisão</span><h2>Solicitações de módulos</h2></div><span class="badge progress">${requests.length} pendente(s)</span></div>
-      <div class="admin-request-list">${requests.map((request) => `<article><div><strong>${escapeHtml(request.moduleName)}</strong><span>${escapeHtml(request.tenantName)} · solicitado por ${escapeHtml(request.requestedBy)}</span></div><button class="primary-button" data-approve-module="${escapeHtml(request.moduleCode)}" data-tenant-id="${escapeHtml(request.tenantId)}" type="button">Liberar acesso</button></article>`).join("")}</div>
+      <div class="section-title-row"><div><span class="eyebrow">Fila administrativa</span><h2>Solicitações de serviços</h2><p>Histórico de solicitações recebidas e decisões da plataforma.</p></div><span class="badge progress">${requests.filter((request) => request.status === "pending").length} pendente(s)</span></div>
+      <div class="admin-request-list">${requests.map((request) => `<article><div><strong>${escapeHtml(request.moduleName || moduleDefinitions[request.moduleCode]?.name || request.moduleCode)}</strong><span>${escapeHtml(request.tenantName)} · solicitado por ${escapeHtml(request.requestedBy || "usuário da franquia")}</span></div><div class="request-actions"><span class="badge ${request.status === "pending" ? "progress" : request.status === "approved" ? "done" : "info"}">${escapeHtml(request.status === "pending" ? "Pendente" : request.status === "approved" ? "Aprovada" : request.status || "Processada")}</span>${request.status === "pending" ? `<button class="primary-button" data-approve-module="${escapeHtml(request.moduleCode)}" data-tenant-id="${escapeHtml(request.tenantId)}" type="button">Liberar acesso</button>` : ""}</div></article>`).join("") || empty("Nenhuma solicitação registrada")}</div>
     </section>
   `;
 }
@@ -831,6 +888,7 @@ function renderAdminUserForm(tenants) {
         <label>Franquia<select name="tenantId"><option value="">Selecione</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select></label>
         <label>Perfil<select name="role"><option value="franchise_admin">Administrador da franquia</option><option value="manager">Gerente</option><option value="user">Usuário</option></select></label>
       </div>
+      <div class="permission-banner user-confirmation-note">O usuário será criado ativo e confirmado automaticamente, sem etapa de confirmação por e-mail.</div>
       <div class="form-actions"><button class="primary-button" data-create-portal-user type="button">Criar usuário</button></div>
     </section>
   `;
@@ -847,20 +905,6 @@ function renderAdminUsers(users, tenants) {
 
 function roleLabel(role) {
   return { franchise_admin: "Administrador", manager: "Gerente", user: "Usuário" }[role] || role;
-}
-
-async function requestModule(moduleCode, button) {
-  const tenantId = currentTenantId();
-  if (!tenantId) return;
-  button.disabled = true;
-  try {
-    await supabaseRpc("request_tenant_module", { p_token: state.auth.token, p_tenant_id: tenantId, p_module_code: moduleCode, p_notes: null });
-    await loadSupabaseData();
-    render();
-  } catch (error) {
-    button.disabled = false;
-    alert(error.message || "Não foi possível solicitar o módulo.");
-  }
 }
 
 async function adminSetModuleStatus(select) {
@@ -1308,29 +1352,21 @@ function renderDashboard() {
       </div>
     </section>
 
-    <section class="implantation-hero-panel">
-      <div>
-        <span class="small-label">Central de implantação</span>
-        <h2>Gestão completa das franquias em implantação</h2>
-        <p>Visão executiva, pasta digital por unidade, cronograma, documentos, treinamentos, credenciamentos, alertas e pendências em um único painel operacional.</p>
-      </div>
-      <div class="status-overview-grid">
-        ${statusOverview("Em implantação", statusCounts["Em implantação"] || 0, "blue")}
-        ${statusOverview("Aguardando documentação", statusCounts["Aguardando documentação"] || 0, "yellow")}
-        ${statusOverview("Em atraso", statusCounts["Em atraso"] || 0, "orange")}
-        ${statusOverview("Pronta para inauguração", statusCounts["Pronta para inauguração"] || 0, "green")}
-        ${statusOverview("Implantação crítica", statusCounts["Implantação crítica"] || 0, "red")}
-      </div>
-    </section>
-
-    <div class="grid kpi-grid">
-      ${kpi("Total de franquias", visibleUnits.length, `${criticalUnits} em risco ou atraso`)}
-      ${kpi("Progresso médio", `${avg}%`, `${done} de ${tasks.length} etapas concluídas`)}
-      ${kpi("Pendências abertas", openPendencies, `${pending} etapas pendentes`)}
-      ${kpi("Documentos pendentes", pendingDocuments, `${totalDocuments} documentos mapeados`)}
-      ${kpi("Credenciamentos concluídos", closedCred, `${data.accreditation.procedures.length} procedimentos base`)}
-      ${kpi("Tempo médio de implantação", averageDaysLabel(visibleUnits), "prazo até inauguração")}
-    </div>
+    ${renderDashboardSummary(state.dashboardTab, visibleUnits, {
+      done,
+      inProgress,
+      pending,
+      avg,
+      criticalUnits,
+      totalDocuments,
+      pendingDocuments,
+      openPendencies,
+      statusCounts,
+      blockers,
+      purchases,
+      closedCred,
+      totalProcedures: visibleUnits.length * data.accreditation.procedures.length,
+    })}
 
     ${renderDashboardTabContent(state.dashboardTab, visibleUnits, {
       done,
@@ -1346,6 +1382,81 @@ function renderDashboard() {
 
 function dashboardTabButton(key, label) {
   return `<button class="view-tab ${state.dashboardTab === key ? "active" : ""}" data-dashboard-tab="${key}" type="button">${escapeHtml(label)}</button>`;
+}
+
+function renderDashboardSummary(tab, visibleUnits, context) {
+  if (tab === "roadmap") {
+    return `
+      <section class="implantation-hero-panel dashboard-context-hero">
+        <div><span class="small-label">Roadmap consolidado</span><h2>Todas as etapas da rede</h2><p>Leitura total dos marcos de implantação, andamento e bloqueios das franquias.</p></div>
+        <div class="status-overview-grid dashboard-summary-four">
+          ${statusOverview("Total de etapas", context.done + context.inProgress + context.pending, "blue")}
+          ${statusOverview("Concluídas", context.done, "green")}
+          ${statusOverview("Em andamento", context.inProgress, "yellow")}
+          ${statusOverview("Pendentes", context.pending, "red")}
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab === "purchases") {
+    const rows = context.purchases || [];
+    const done = rows.filter((item) => getStatus(item) === "Concluído").length;
+    const inProgress = rows.filter((item) => getStatus(item) === "Em Andamento").length;
+    const pending = rows.filter((item) => getStatus(item) === "Pendente").length;
+    return `
+      <section class="implantation-hero-panel dashboard-context-hero">
+        <div><span class="small-label">Compras da rede</span><h2>Abastecimento e implantação física</h2><p>Visão agregada dos itens necessários para abertura e operação das unidades.</p></div>
+        <div class="status-overview-grid dashboard-summary-four">
+          ${statusOverview("Total de itens", rows.length, "blue")}
+          ${statusOverview("Concluídos", done, "green")}
+          ${statusOverview("Em andamento", inProgress, "yellow")}
+          ${statusOverview("Pendentes", pending, "red")}
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab === "accreditation") {
+    const total = context.totalProcedures;
+    const open = Math.max(total - context.closedCred, 0);
+    return `
+      <section class="implantation-hero-panel dashboard-context-hero">
+        <div><span class="small-label">Credenciamentos da rede</span><h2>Procedimentos e aprovações</h2><p>Acompanhamento consolidado das negociações e liberações por franquia.</p></div>
+        <div class="status-overview-grid dashboard-summary-four">
+          ${statusOverview("Total previsto", total, "blue")}
+          ${statusOverview("Concluídos", context.closedCred, "green")}
+          ${statusOverview("Em aberto", open, "yellow")}
+          ${statusOverview("Cobertura", `${percentOf(context.closedCred, Math.max(total, 1))}%`, "blue")}
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="implantation-hero-panel">
+      <div>
+        <span class="small-label">Central de implantação</span>
+        <h2>Gestão completa das franquias em implantação</h2>
+        <p>Visão executiva de todas as unidades, com progresso, documentos, credenciamentos, alertas e pendências.</p>
+      </div>
+      <div class="status-overview-grid">
+        ${statusOverview("Em implantação", context.statusCounts["Em implantação"] || 0, "blue")}
+        ${statusOverview("Aguardando documentação", context.statusCounts["Aguardando documentação"] || 0, "yellow")}
+        ${statusOverview("Em atraso", context.statusCounts["Em atraso"] || 0, "orange")}
+        ${statusOverview("Pronta para inauguração", context.statusCounts["Pronta para inauguração"] || 0, "green")}
+        ${statusOverview("Implantação crítica", context.statusCounts["Implantação crítica"] || 0, "red")}
+      </div>
+    </section>
+    <div class="grid kpi-grid">
+      ${kpi("Total de franquias", visibleUnits.length, `${context.criticalUnits} em risco ou atraso`)}
+      ${kpi("Progresso médio", `${context.avg}%`, `${context.done} de ${context.done + context.inProgress + context.pending} etapas concluídas`)}
+      ${kpi("Pendências abertas", context.openPendencies, `${context.pending} etapas pendentes`)}
+      ${kpi("Documentos pendentes", context.pendingDocuments, `${context.totalDocuments} documentos mapeados`)}
+      ${kpi("Credenciamentos concluídos", context.closedCred, `${data.accreditation.procedures.length} procedimentos base`)}
+      ${kpi("Tempo médio de implantação", averageDaysLabel(visibleUnits), "prazo até inauguração")}
+    </div>
+  `;
 }
 
 function renderDashboardTabContent(tab, visibleUnits, context) {

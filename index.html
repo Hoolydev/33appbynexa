@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>33Doctor APP | Desenvolvido pela Nexa</title>
-    <link rel="stylesheet" href="./styles.css?v=20260713b" />
+    <link rel="stylesheet" href="./styles.css?v=20260713d" />
   </head>
   <body>
     <section id="landing-screen" class="landing-screen">
@@ -207,7 +207,10 @@
               <span>Buscar</span>
               <input id="global-search" type="search" placeholder="Unidade, etapa ou procedimento" />
             </label>
-            <button id="export-csv" class="ghost-button" type="button">Exportar</button>
+            <div class="top-action-buttons">
+              <button id="export-csv" class="ghost-button" type="button">Exportar</button>
+              <button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Ativar tema escuro" title="Alternar tema"><span aria-hidden="true">◐</span></button>
+            </div>
           </div>
         </header>
 
@@ -217,6 +220,6 @@
 
     <script src="./supabase-config.js"></script>
     <script src="./data.js"></script>
-    <script src="./app.js?v=20260713b"></script>
+    <script src="./app.js?v=20260713c"></script>
   </body>
 </html>

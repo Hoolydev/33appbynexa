@@ -5227,6 +5227,26 @@ select.empty-status:focus {
   min-height: 40px;
 }
 
+.app-shell .top-action-buttons {
+  display: flex;
+  align-self: end;
+  gap: 7px;
+}
+
+.app-shell .top-action-buttons .ghost-button,
+.app-shell .theme-toggle {
+  min-height: 40px;
+}
+
+.app-shell .theme-toggle {
+  width: 40px;
+  flex: 0 0 40px;
+  border: 1px solid #dce2e7;
+  background: #fff;
+  color: #355363;
+  font-size: 17px;
+}
+
 .app-shell .content {
   padding: 24px 28px 48px;
 }
@@ -5321,6 +5341,10 @@ select.empty-status:focus {
   grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
 }
 
+.app-shell .admin-toolbar {
+  grid-template-columns: minmax(190px, 280px) minmax(0, 1fr);
+}
+
 .app-shell .dashboard-toolbar strong {
   font-size: 15px;
 }
@@ -5379,6 +5403,240 @@ select.empty-status:focus {
 .app-shell .status-overview-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.app-shell .dashboard-context-hero {
+  margin-bottom: 16px;
+}
+
+.app-shell .dashboard-summary-four {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.app-shell .admin-overview-grid {
+  margin-top: 14px;
+}
+
+.app-shell .admin-overview-grid .ghost-button {
+  margin-top: 16px;
+}
+
+.app-shell .request-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-shell .user-confirmation-note,
+.app-shell .admin-preview-banner {
+  margin-top: 14px;
+}
+
+.app-shell .module-admin-note {
+  display: block;
+  margin-top: 12px;
+  color: #7c8591;
+}
+
+/* Dark product theme */
+.app-shell.dark-theme {
+  color-scheme: dark;
+  background: #101419;
+  color: #dce2e8;
+}
+
+.app-shell.dark-theme .sidebar {
+  border-color: #2a3139;
+  background: #14191f;
+}
+
+.app-shell.dark-theme .product-brand {
+  border-color: #2a3139;
+}
+
+.app-shell.dark-theme .nav-section-label,
+.app-shell.dark-theme .small-label,
+.app-shell.dark-theme .eyebrow {
+  color: #8e99a5;
+}
+
+.app-shell.dark-theme .nav-item {
+  color: #aeb7c1;
+}
+
+.app-shell.dark-theme .nav-item:hover,
+.app-shell.dark-theme .nav-item:focus-visible,
+.app-shell.dark-theme .nav-item.active {
+  border-color: #3b4651;
+  background: #202830;
+  color: #ecf4f7;
+}
+
+.app-shell.dark-theme .module-nav small {
+  background: #222a32;
+  color: #9fa9b4;
+}
+
+.app-shell.dark-theme .workspace,
+.app-shell.dark-theme .content {
+  background: #101419;
+}
+
+.app-shell.dark-theme .topbar {
+  border-color: #2a3139;
+  background: #171c22;
+  color: #e5eaf0;
+}
+
+.app-shell.dark-theme .topbar h1,
+.app-shell.dark-theme .panel h2,
+.app-shell.dark-theme .implantation-hero-panel h2,
+.app-shell.dark-theme .unit-focus-hero h2,
+.app-shell.dark-theme .admin-hero h2,
+.app-shell.dark-theme .module-page-head h2,
+.app-shell.dark-theme .module-active-hero h3,
+.app-shell.dark-theme .record-form h3 {
+  color: #f0f3f6;
+}
+
+.app-shell.dark-theme .topbar-copy p,
+.app-shell.dark-theme .implantation-hero-panel p,
+.app-shell.dark-theme .unit-focus-hero p,
+.app-shell.dark-theme .admin-hero p,
+.app-shell.dark-theme .module-page-head p,
+.app-shell.dark-theme .module-active-hero p,
+.app-shell.dark-theme .panel p,
+.app-shell.dark-theme .meta {
+  color: #98a3ae;
+}
+
+.app-shell.dark-theme .quick-action,
+.app-shell.dark-theme .ghost-button,
+.app-shell.dark-theme .icon-button,
+.app-shell.dark-theme .profile-toggle,
+.app-shell.dark-theme .sidebar-logout,
+.app-shell.dark-theme .theme-toggle {
+  border-color: #343d46;
+  background: #1c232a;
+  color: #d5dce3;
+}
+
+.app-shell.dark-theme .quick-action:hover,
+.app-shell.dark-theme .quick-action:focus-visible,
+.app-shell.dark-theme .quick-action.active,
+.app-shell.dark-theme .ghost-button:hover,
+.app-shell.dark-theme .ghost-button:focus-visible {
+  border-color: #53616e;
+  background: #26313a;
+  color: #fff;
+}
+
+.app-shell.dark-theme .search-box input,
+.app-shell.dark-theme input,
+.app-shell.dark-theme select,
+.app-shell.dark-theme textarea {
+  border-color: #333c45;
+  background: #12171c;
+  color: #e0e6eb;
+}
+
+.app-shell.dark-theme input::placeholder,
+.app-shell.dark-theme textarea::placeholder {
+  color: #6f7b87;
+}
+
+.app-shell.dark-theme .panel,
+.app-shell.dark-theme .toolbar-panel,
+.app-shell.dark-theme .unit-workspace,
+.app-shell.dark-theme .module-page-head,
+.app-shell.dark-theme .module-active-hero,
+.app-shell.dark-theme .module-lock-panel,
+.app-shell.dark-theme .admin-section,
+.app-shell.dark-theme .implantation-hero-panel,
+.app-shell.dark-theme .unit-focus-hero,
+.app-shell.dark-theme .admin-hero,
+.app-shell.dark-theme .record-form,
+.app-shell.dark-theme .kpi,
+.app-shell.dark-theme .unit-card {
+  border-color: #2c343d;
+  background: #171d23;
+  color: #dce2e8;
+}
+
+.app-shell.dark-theme .view-tab {
+  color: #aab4bf;
+}
+
+.app-shell.dark-theme .view-tab.active {
+  border-color: #52626d;
+  background: #26333b;
+  color: #e8f4f7;
+}
+
+.app-shell.dark-theme .status-overview,
+.app-shell.dark-theme .franchise-meta-grid > div,
+.app-shell.dark-theme .unit-summary-grid article,
+.app-shell.dark-theme .phase-grid article,
+.app-shell.dark-theme .module-metric-grid article,
+.app-shell.dark-theme .module-workflow article,
+.app-shell.dark-theme .admin-user-list article,
+.app-shell.dark-theme .admin-request-list article {
+  border-color: #303943;
+  background: #1d242b;
+  color: #e0e6eb;
+}
+
+.app-shell.dark-theme .kpi > span,
+.app-shell.dark-theme .kpi small,
+.app-shell.dark-theme .status-overview span,
+.app-shell.dark-theme .module-metric-grid span,
+.app-shell.dark-theme .module-metric-grid small,
+.app-shell.dark-theme .module-workflow small {
+  color: #98a3ae;
+}
+
+.app-shell.dark-theme .kpi strong,
+.app-shell.dark-theme .status-overview strong,
+.app-shell.dark-theme .module-metric-grid strong,
+.app-shell.dark-theme .module-workflow strong,
+.app-shell.dark-theme .row-title {
+  color: #edf1f5;
+}
+
+.app-shell.dark-theme thead th {
+  border-color: #303842;
+  background: #20272e;
+  color: #a7b0ba;
+}
+
+.app-shell.dark-theme tbody td,
+.app-shell.dark-theme .chart-row,
+.app-shell.dark-theme .unit-tabbar {
+  border-color: #2b333c;
+  color: #cbd3db;
+}
+
+.app-shell.dark-theme tbody tr:hover,
+.app-shell.dark-theme .chart-row:hover,
+.app-shell.dark-theme .chart-row:focus-visible {
+  background: #1c232a;
+}
+
+.app-shell.dark-theme .bar,
+.app-shell.dark-theme .kpi-segments span {
+  background: #303842;
+}
+
+.app-shell.dark-theme .profile-menu {
+  border-color: #343d46;
+  background: #1a2026;
+  color: #e1e6eb;
+}
+
+.app-shell.dark-theme .permission-banner {
+  background: #202c33;
+  color: #b7cbd3;
 }
 
 .app-shell .status-overview {
@@ -5851,12 +6109,58 @@ select.empty-status:focus {
   }
 
   .app-shell .top-actions,
-  .app-shell .dashboard-toolbar {
+  .app-shell .dashboard-toolbar,
+  .app-shell .admin-toolbar {
     grid-template-columns: 1fr;
   }
 
   .app-shell .search-box,
-  .app-shell .top-actions > .ghost-button {
+  .app-shell .top-action-buttons {
     grid-column: 1;
   }
+
+  .app-shell .dashboard-summary-four {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Final dark-theme semantic overrides must follow the light status palette. */
+.app-shell.dark-theme .status-overview {
+  border-color: #303943;
+  border-left-color: #3c87b5;
+  background: #1d242b;
+}
+
+.app-shell.dark-theme .status-overview.green {
+  border-left-color: #22a874;
+  background: #172820;
+}
+
+.app-shell.dark-theme .status-overview.yellow {
+  border-left-color: #e4b23f;
+  background: #292516;
+}
+
+.app-shell.dark-theme .status-overview.orange {
+  border-left-color: #e7873a;
+  background: #2b2119;
+}
+
+.app-shell.dark-theme .status-overview.red {
+  border-left-color: #df5864;
+  background: #2a1d21;
+}
+
+.app-shell.dark-theme .status-overview strong,
+.app-shell.dark-theme .profile-toggle strong,
+.app-shell.dark-theme .admin-user-copy strong,
+.app-shell.dark-theme .admin-request-list strong {
+  color: #f0f3f6;
+}
+
+.app-shell.dark-theme .status-overview span,
+.app-shell.dark-theme .profile-toggle small,
+.app-shell.dark-theme .admin-user-copy span,
+.app-shell.dark-theme .admin-request-list span {
+  color: #a4aeb8;
 }
