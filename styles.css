@@ -4678,10 +4678,10 @@ select.empty-status:focus {
 }
 
 .landing-footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 230px;
   align-items: center;
-  justify-content: space-between;
   gap: 40px;
   background: #fff;
   border-top: 1px solid #e2e9f3;
@@ -4704,8 +4704,11 @@ select.empty-status:focus {
 
 .footer-nexa {
   display: grid;
-  justify-items: end;
-  gap: 8px;
+  width: 100%;
+  justify-items: center;
+  justify-self: center;
+  gap: 10px;
+  text-align: center;
 }
 
 .footer-nexa span {
@@ -4716,7 +4719,8 @@ select.empty-status:focus {
 }
 
 .footer-nexa img {
-  width: 176px;
+  width: 250px;
+  max-width: 100%;
   height: auto;
 }
 
@@ -4912,14 +4916,14 @@ select.empty-status:focus {
   }
 
   .landing-footer {
+    grid-template-columns: 1fr;
     align-items: flex-start;
-    flex-direction: column;
     padding-top: 54px;
     padding-bottom: 54px;
   }
 
   .footer-nexa {
-    justify-items: start;
+    justify-items: center;
   }
 }
 
