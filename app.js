@@ -1776,10 +1776,12 @@ function percentOf(done, total) {
   return Math.round((done / Math.max(total, 1)) * 100);
 }
 
+const READY_TO_OPEN_PROGRESS = 90;
+
 function unitStatus(unit) {
   const stats = unitStats(unit);
   const days = daysTo(unit.openingDate);
-  if (stats.progress.percent >= 95 && stats.pendingAccreditation === 0 && stats.openPending <= 2) {
+  if (stats.progress.percent >= READY_TO_OPEN_PROGRESS) {
     return { label: "Pronta para inauguração", className: "done", dot: "green" };
   }
   if (days !== null && days < 0) {
