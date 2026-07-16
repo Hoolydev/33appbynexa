@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>33Doctor APP | Desenvolvido pela Nexa</title>
-    <link rel="stylesheet" href="./styles.css?v=20260713h" />
+    <link rel="stylesheet" href="./styles.css?v=20260716e" />
   </head>
   <body>
     <section id="landing-screen" class="landing-screen">
@@ -141,16 +141,29 @@
           <span class="brand-platform-lockup app-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
         </div>
         <nav class="nav" aria-label="Navegação principal">
-          <button class="nav-item active" data-view="dashboard" type="button">Dashboard</button>
-          <button class="nav-item" data-view="franchises" type="button">Franquias</button>
-          <button class="nav-item" data-view="new-unit" data-platform-only type="button">Nova franquia</button>
-          <span class="nav-section-label">Módulos</span>
-          <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button">RH <small data-module-state="hr">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button">Departamento Pessoal <small data-module-state="dp">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="accounting" data-module-nav="accounting" type="button">Contabilidade <small data-module-state="accounting">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button">Financeiro <small data-module-state="finance">Bloqueado</small></button>
-          <span class="nav-section-label" data-platform-only>Gestão da plataforma</span>
-          <button class="nav-item" data-view="admin" data-platform-only type="button">Administração</button>
+          <span class="nav-section-label">Visão geral</span>
+          <button class="nav-item active" data-view="dashboard" type="button"><i data-lucide="house"></i><span>Página inicial</span></button>
+          <button class="nav-item" data-view="franchises" type="button"><i data-lucide="building-2"></i><span>Franquias</span></button>
+          <button class="nav-item" data-view="implantation" type="button"><i data-lucide="route"></i><span>Implantação</span></button>
+          <span class="nav-section-label">Operação</span>
+          <button class="nav-item" data-view="commercial" type="button"><i data-lucide="briefcase-business"></i><span>Comercial</span></button>
+          <button class="nav-item" data-view="credentialing" type="button"><i data-lucide="badge-check"></i><span>Credenciamento</span></button>
+          <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button"><i data-lucide="users"></i><span>RH</span><small data-module-state="hr">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button"><i data-lucide="contact-round"></i><span>Departamento Pessoal</span><small data-module-state="dp">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button"><i data-lucide="wallet-cards"></i><span>Financeiro</span><small data-module-state="finance">Bloqueado</small></button>
+          <button class="nav-item module-nav" data-view="accounting" data-module-nav="accounting" type="button"><i data-lucide="calculator"></i><span>Contabilidade</span><small data-module-state="accounting">Bloqueado</small></button>
+          <button class="nav-item" data-view="marketing" type="button"><i data-lucide="megaphone"></i><span>Marketing</span></button>
+          <button class="nav-item" data-view="projects" type="button"><i data-lucide="folder-kanban"></i><span>Projetos</span></button>
+          <button class="nav-item" data-view="quality" type="button"><i data-lucide="sparkles"></i><span>Qualidade</span></button>
+          <button class="nav-item" data-view="documentation" type="button"><i data-lucide="files"></i><span>Documentação</span></button>
+          <button class="nav-item" data-view="legal" type="button"><i data-lucide="scale"></i><span>Jurídico</span></button>
+          <button class="nav-item" data-view="administrative" type="button"><i data-lucide="settings-2"></i><span>Administrativo</span></button>
+          <button class="nav-item" data-view="bi" type="button"><i data-lucide="chart-no-axes-combined"></i><span>Relatórios e BI</span></button>
+          <button class="nav-item" data-view="communication" type="button"><i data-lucide="messages-square"></i><span>Comunicação</span></button>
+          <button class="nav-item" data-view="support" type="button"><i data-lucide="headset"></i><span>Suporte</span></button>
+          <span class="nav-section-label" data-platform-only>Sistema</span>
+          <button class="nav-item" data-view="new-unit" data-platform-only type="button"><i data-lucide="plus-square"></i><span>Nova franquia</span></button>
+          <button class="nav-item" data-view="settings" data-platform-only type="button"><i data-lucide="shield-check"></i><span>Configurações</span></button>
         </nav>
         <div class="profile-control sidebar-profile">
           <button id="profile-toggle" class="profile-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
@@ -187,29 +200,23 @@
       <main class="workspace">
         <header class="topbar">
           <div class="topbar-copy">
-            <div class="topbar-kicker">
-              <span id="topbar-date">33Doctor APP</span>
-            </div>
             <div class="topbar-user">
-              <span id="topbar-avatar" class="profile-avatar hero-avatar">NX</span>
-              <h1>Olá, <span id="profile-name-display">Usuário 33Doctor</span>.</h1>
+              <h1>Olá, <span id="profile-name-display">Usuário 33Doctor</span>!</h1>
             </div>
-            <p><span id="view-title">Dashboard</span> · gestão integrada de franquias, processos e indicadores.</p>
+            <p>Bem-vindo à 33Doctor. Aqui você acompanha toda a rede em um só lugar.</p>
+            <span id="view-title" hidden>Dashboard</span>
           </div>
           <div class="top-actions">
-            <div class="quick-menu" aria-label="Ações rápidas">
-              <button class="quick-action" data-quick-view="dashboard" type="button">Dashboard</button>
-              <button class="quick-action" data-quick-view="franchises" type="button">Franquias</button>
-              <button class="quick-action" data-quick-view="new-unit" data-platform-only type="button">Nova unidade</button>
-              <button class="quick-action" data-quick-view="admin" data-platform-only type="button">Administração</button>
-            </div>
             <label class="search-box">
-              <span>Buscar</span>
-              <input id="global-search" type="search" placeholder="Unidade, etapa ou procedimento" />
+              <i data-lucide="search"></i>
+              <input id="global-search" type="search" placeholder="Buscar na plataforma" />
             </label>
             <div class="top-action-buttons">
-              <button id="export-csv" class="ghost-button" type="button">Exportar</button>
-              <button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Ativar tema escuro" title="Alternar tema"><span aria-hidden="true">◐</span></button>
+              <button id="export-csv" class="icon-button" type="button" aria-label="Exportar dados" title="Exportar dados"><i data-lucide="download"></i></button>
+              <button class="icon-button notification-button" type="button" aria-label="Notificações" title="Notificações"><i data-lucide="bell"></i><span>8</span></button>
+              <button class="icon-button notification-button" type="button" aria-label="Mensagens" title="Mensagens"><i data-lucide="message-circle"></i><span>3</span></button>
+              <button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Ativar tema escuro" title="Alternar tema"><i data-lucide="moon"></i></button>
+              <div class="date-control"><i data-lucide="calendar-days"></i><span><strong id="topbar-date">Hoje</strong><small>Visão da rede</small></span></div>
             </div>
           </div>
         </header>
@@ -218,8 +225,9 @@
       </main>
     </div>
 
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <script src="./supabase-config.js"></script>
     <script src="./data.js"></script>
-    <script src="./app.js?v=20260714a"></script>
+    <script src="./app.js?v=20260716d"></script>
   </body>
 </html>

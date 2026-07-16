@@ -32,6 +32,7 @@ const state = {
   adminData: null,
   selectedTenantId: "",
   departmentRecords: readStorage("departmentRecords", {}),
+  departmentSections: readStorage("departmentSections", {}),
   moduleLoaded: {},
   moduleLoading: {},
   moduleEditing: {},
@@ -198,6 +199,21 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("click", (event) => {
+  const departmentSection = event.target.closest("[data-department-section]");
+  if (departmentSection) {
+    const departmentCode = departmentSection.dataset.departmentCode;
+    state.departmentSections[departmentCode] = departmentSection.dataset.departmentSection;
+    writeStorage("departmentSections", state.departmentSections);
+    render();
+  }
+
+  const openView = event.target.closest("[data-open-view]");
+  if (openView) {
+    state.view = openView.dataset.openView;
+    activateNav(state.view);
+    render();
+  }
+
   const dashboardTab = event.target.closest("[data-dashboard-tab]");
   if (dashboardTab) {
     state.dashboardTab = dashboardTab.dataset.dashboardTab;
@@ -329,8 +345,6 @@ app.addEventListener("click", (event) => {
   const deleteModuleRecordButton = event.target.closest("[data-delete-module-record]");
   if (deleteModuleRecordButton) deleteModuleRecord(deleteModuleRecordButton);
 });
-
-init();
 
 async function init() {
   const careersTenant = new URLSearchParams(window.location.search).get("careers");
@@ -520,7 +534,8 @@ function applyTheme() {
   appShell.classList.toggle("dark-theme", dark);
   themeToggle.setAttribute("aria-label", dark ? "Ativar tema claro" : "Ativar tema escuro");
   themeToggle.setAttribute("title", dark ? "Usar tema claro" : "Usar tema escuro");
-  themeToggle.querySelector("span").textContent = dark ? "☀" : "◐";
+  themeToggle.innerHTML = `<i data-lucide="${dark ? "sun" : "moon"}"></i>`;
+  refreshIcons();
 }
 
 async function login(form) {
@@ -825,7 +840,7 @@ function updateSourceCount() {
 
 function render() {
   const titles = {
-    dashboard: "Dashboard",
+    dashboard: "Página inicial",
     franchises: "Franquias",
     units: "Unidades",
     roadmap: "Roadmap",
@@ -837,8 +852,9 @@ function render() {
     accounting: "Contabilidade",
     finance: "Financeiro",
     admin: "Administração",
+    settings: "Configurações",
   };
-  const currentTitle = titles[state.view] || "Dashboard";
+  const currentTitle = titles[state.view] || departmentDefinitions[state.view]?.name || "Página inicial";
   title.textContent = currentTitle;
   updateTopbarState(currentTitle);
 
@@ -850,14 +866,21 @@ function render() {
     purchases: renderPurchases,
     accreditation: renderAccreditation,
     "new-unit": renderNewUnit,
-    hr: () => renderModuleWorkspace("hr"),
-    dp: () => renderModuleWorkspace("dp"),
-    accounting: () => renderModuleWorkspace("accounting"),
-    finance: () => renderModuleWorkspace("finance"),
+    hr: () => renderDepartmentHub("hr"),
+    dp: () => renderDepartmentHub("dp"),
+    accounting: () => renderDepartmentHub("accounting"),
+    finance: () => renderDepartmentHub("finance"),
     admin: renderAdminCenter,
+    settings: () => renderDepartmentHub("settings"),
   };
-  app.innerHTML = (views[state.view] || renderDashboard)();
+  app.innerHTML = (views[state.view] || (departmentDefinitions[state.view] ? () => renderDepartmentHub(state.view) : renderDashboard))();
+  updateNavigationAccess();
   applyViewPermissions();
+  refreshIcons();
+}
+
+function refreshIcons() {
+  if (window.lucide?.createIcons) window.lucide.createIcons();
 }
 
 function updateTopbarState(currentTitle) {
@@ -982,6 +1005,418 @@ const moduleDefinitions = {
     workflow: ["Lançamentos", "Aprovação", "Pagamento", "Conciliação", "Indicadores"],
   },
 };
+
+function departmentSections(labels) {
+  return labels.map((label) => ({
+    id: slug(label),
+    label,
+  }));
+}
+
+const departmentDefinitions = {
+  implantation: {
+    name: "Implantação",
+    eyebrow: "Expansão da rede",
+    icon: "route",
+    description: "Planejamento, execução e acompanhamento de cada etapa até a inauguração da unidade.",
+    sections: departmentSections(["Dashboard de Implantação", "Roadmap de Implantação", "Cronograma", "Checklist Geral", "Etapas da Implantação", "Gestão de Pendências", "Aprovações", "Agenda de Implantação", "Linha do Tempo da Unidade"]),
+  },
+  commercial: {
+    name: "Comercial",
+    eyebrow: "Expansão e vendas",
+    icon: "briefcase-business",
+    description: "Gestão do funil comercial, contratos, metas e conversão de novas franquias.",
+    sections: departmentSections(["Pipeline Comercial", "Leads", "Funil de Vendas", "Franquias Vendidas", "Contratos Comerciais", "Metas Comerciais", "Dashboard Comercial"]),
+  },
+  credentialing: {
+    name: "Credenciamento",
+    eyebrow: "Rede assistencial",
+    icon: "badge-check",
+    description: "Prestadores, negociações, procedimentos, documentação e aprovações da rede de atendimento.",
+    sections: departmentSections(["Dashboard de Credenciamento", "Prestadores", "Clínicas", "Hospitais", "Laboratórios", "Médicos", "Procedimentos", "Tabelas de Preços", "Negociações", "Documentações", "Aprovação", "Auditoria"]),
+  },
+  hr: {
+    name: "Recursos Humanos",
+    eyebrow: "Pessoas e cultura",
+    icon: "users",
+    description: "Atração, desenvolvimento e acompanhamento das pessoas que constroem cada unidade.",
+    sections: departmentSections(["Dashboard RH", "Colaboradores", "Recrutamento", "Banco de Talentos", "Onboarding", "Treinamentos", "Avaliações", "Feedback", "Cargos", "Organograma", "Indicadores RH"]),
+  },
+  dp: {
+    name: "Departamento Pessoal",
+    eyebrow: "Rotina trabalhista",
+    icon: "contact-round",
+    description: "Admissões, folha, benefícios, férias, ponto e obrigações trabalhistas em um único fluxo.",
+    sections: departmentSections(["Dashboard DP", "Admissões", "Férias", "Folha", "Benefícios", "Ponto", "Rescisões", "eSocial"]),
+  },
+  finance: {
+    name: "Financeiro",
+    eyebrow: "Controle e previsibilidade",
+    icon: "wallet-cards",
+    description: "Visão financeira completa da unidade, dos lançamentos aos indicadores de resultado.",
+    sections: departmentSections(["Dashboard Financeiro", "Contas a Pagar", "Contas a Receber", "Fluxo de Caixa", "Repasses", "Royalties", "Taxas", "Conciliação", "Centro de Custos", "DRE", "Indicadores Financeiros"]),
+  },
+  accounting: {
+    name: "Contabilidade",
+    eyebrow: "Conformidade contábil",
+    icon: "calculator",
+    description: "Obrigações, documentos, competências, balancetes e relatórios contábeis por franquia.",
+    sections: departmentSections(["Dashboard Contábil", "Obrigações", "Balancetes", "Documentos Contábeis", "Relatórios"]),
+  },
+  marketing: {
+    name: "Marketing",
+    eyebrow: "Marca e crescimento",
+    icon: "megaphone",
+    description: "Campanhas, materiais, calendário editorial, solicitações e aprovações da marca.",
+    sections: departmentSections(["Dashboard Marketing", "Campanhas", "Artes", "Biblioteca de Materiais", "Redes Sociais", "Calendário", "Solicitações", "Aprovações"]),
+  },
+  projects: {
+    name: "Projetos",
+    eyebrow: "Obras e entregas",
+    icon: "folder-kanban",
+    description: "Obras, cronogramas, fornecedores, compras, entregas e checklists dos projetos da rede.",
+    sections: departmentSections(["Dashboard Projetos", "Obras", "Cronogramas", "Fornecedores", "Compras", "Entregas", "Checklists"]),
+  },
+  quality: {
+    name: "Qualidade",
+    eyebrow: "Padrão operacional",
+    icon: "sparkles",
+    description: "Auditorias, conformidade, planos de ação, indicadores e certificações das unidades.",
+    sections: departmentSections(["Dashboard Qualidade", "Auditorias", "Não Conformidades", "Plano de Ação", "Indicadores", "Certificações"]),
+  },
+  documentation: {
+    name: "Documentação",
+    eyebrow: "Conhecimento da rede",
+    icon: "files",
+    description: "Central oficial de documentos, manuais, políticas, formulários e modelos da franqueadora.",
+    sections: departmentSections(["Central de Documentos", "POPs", "Manuais", "Políticas", "Formulários", "Modelos", "Downloads"]),
+  },
+  legal: {
+    name: "Jurídico",
+    eyebrow: "Segurança jurídica",
+    icon: "scale",
+    description: "Contratos, processos, pareceres, assinaturas e governança de privacidade da rede.",
+    sections: departmentSections(["Dashboard Jurídico", "Contratos", "Processos", "Pareceres", "Assinaturas", "LGPD"]),
+  },
+  administrative: {
+    name: "Administrativo",
+    eyebrow: "Operação interna",
+    icon: "settings-2",
+    description: "Patrimônio, inventário, fornecedores, solicitações, compras e aprovações administrativas.",
+    sections: departmentSections(["Dashboard Administrativo", "Patrimônio", "Inventário", "Fornecedores", "Solicitações", "Compras Administrativas", "Aprovações"]),
+  },
+  bi: {
+    name: "Relatórios e BI",
+    eyebrow: "Inteligência da rede",
+    icon: "chart-no-axes-combined",
+    description: "Indicadores executivos, rankings, comparativos, metas e análises para apoiar decisões.",
+    sections: departmentSections(["Dashboard Executivo", "Indicadores", "Ranking das Franquias", "Comparativos", "Metas", "Relatórios Inteligentes"]),
+  },
+  communication: {
+    name: "Comunicação",
+    eyebrow: "Rede conectada",
+    icon: "messages-square",
+    description: "Avisos, comunicados, notícias, eventos e conversas corporativas da rede.",
+    sections: departmentSections(["Central de Avisos", "Comunicados", "Notícias", "Eventos", "Chat Corporativo"]),
+  },
+  support: {
+    name: "Suporte",
+    eyebrow: "Atendimento à rede",
+    icon: "headset",
+    description: "Chamados, conteúdos de ajuda e orientação para a operação diária das unidades.",
+    sections: departmentSections(["Chamados", "Base de Conhecimento", "Tutoriais", "FAQ"]),
+  },
+  settings: {
+    name: "Configurações",
+    eyebrow: "Governança da plataforma",
+    icon: "shield-check",
+    description: "Usuários, acessos, franquias, integrações, auditoria e parâmetros gerais do sistema.",
+    sections: departmentSections(["Usuários", "Perfis de Acesso", "Permissões", "Empresas", "Franquias", "Integrações", "Logs do Sistema", "Backup", "Configurações Gerais"]),
+  },
+};
+
+function renderDepartmentHub(departmentCode) {
+  const department = departmentDefinitions[departmentCode];
+  if (!department) return empty("Departamento não encontrado.");
+
+  const activeId = state.departmentSections[departmentCode] || department.sections[0].id;
+  const activeSection = department.sections.find((section) => section.id === activeId) || department.sections[0];
+  const operationalContent = renderDepartmentOperationalContent(departmentCode, activeSection.id);
+
+  return `
+    <section class="department-header">
+      <div class="department-title">
+        <span class="department-icon"><i data-lucide="${escapeHtml(department.icon)}"></i></span>
+        <div>
+          <span class="eyebrow">${escapeHtml(department.eyebrow)}</span>
+          <h2>${escapeHtml(department.name)}</h2>
+          <p>${escapeHtml(department.description)}</p>
+        </div>
+      </div>
+      <div class="department-header-actions">
+        ${["hr", "dp", "finance", "accounting"].includes(departmentCode) ? tenantSelector() : ""}
+        <span class="interface-status"><i data-lucide="layout-dashboard"></i> Estrutura visual</span>
+      </div>
+    </section>
+
+    <nav class="department-subnav" aria-label="Seções de ${escapeHtml(department.name)}">
+      ${department.sections.map((section) => `
+        <button class="${section.id === activeSection.id ? "active" : ""}" data-department-code="${escapeHtml(departmentCode)}" data-department-section="${escapeHtml(section.id)}" type="button">
+          ${escapeHtml(section.label)}
+        </button>
+      `).join("")}
+    </nav>
+
+    ${operationalContent || renderDepartmentVisualWorkspace(departmentCode, department, activeSection)}
+  `;
+}
+
+function renderDepartmentOperationalContent(departmentCode, sectionId) {
+  const functionalSections = {
+    implantation: {
+      "dashboard-de-implantacao": () => renderImplantationDashboard(),
+      "roadmap-de-implantacao": () => renderRoadmap(),
+    },
+    credentialing: {
+      procedimentos: () => renderAccreditation(),
+    },
+    hr: {
+      recrutamento: () => renderModuleWorkspace("hr"),
+    },
+    dp: {
+      folha: () => renderModuleWorkspace("dp"),
+    },
+    finance: {
+      "contas-a-pagar": () => renderModuleWorkspace("finance"),
+      "contas-a-receber": () => renderModuleWorkspace("finance"),
+    },
+    accounting: {
+      "documentos-contabeis": () => renderModuleWorkspace("accounting"),
+    },
+    projects: {
+      compras: () => renderPurchases(),
+    },
+    settings: {
+      usuarios: () => renderAdminCenter(),
+    },
+  };
+  return functionalSections[departmentCode]?.[sectionId]?.() || "";
+}
+
+function renderDepartmentVisualWorkspace(departmentCode, department, activeSection) {
+  const isDashboard = activeSection.id.includes("dashboard") || activeSection === department.sections[0];
+  const metrics = departmentMetricData(departmentCode);
+  const queue = departmentQueueData(departmentCode);
+
+  return `
+    <div class="department-metric-strip">
+      ${metrics.map((metric) => `
+        <article class="department-metric ${escapeHtml(metric.tone)}">
+          <span class="metric-icon"><i data-lucide="${escapeHtml(metric.icon)}"></i></span>
+          <div><small>${escapeHtml(metric.label)}</small><strong>${escapeHtml(String(metric.value))}</strong><em>${escapeHtml(metric.detail)}</em></div>
+        </article>
+      `).join("")}
+    </div>
+
+    ${isDashboard ? `
+      <div class="department-dashboard-grid">
+        <section class="panel department-progress-panel">
+          <div class="panel-title-row"><div><span class="eyebrow">Visão consolidada</span><h2>Desempenho de ${escapeHtml(department.name)}</h2></div><span class="badge info">Atualizado agora</span></div>
+          ${departmentPerformanceChart(departmentCode)}
+        </section>
+        <section class="panel department-priority-panel">
+          <div class="panel-title-row"><div><span class="eyebrow">Prioridades</span><h2>Itens que pedem atenção</h2></div><i data-lucide="list-filter"></i></div>
+          ${departmentQueue(queue)}
+        </section>
+      </div>
+      <section class="panel department-module-catalog">
+        <div class="panel-title-row"><div><span class="eyebrow">Estrutura do departamento</span><h2>Áreas disponíveis</h2></div><span>${department.sections.length} áreas</span></div>
+        <div class="department-module-grid">
+          ${department.sections.map((section, index) => `
+            <button data-department-code="${escapeHtml(departmentCode)}" data-department-section="${escapeHtml(section.id)}" type="button">
+              <span class="module-number">${String(index + 1).padStart(2, "0")}</span>
+              <span><strong>${escapeHtml(section.label)}</strong><small>${escapeHtml(submoduleDescription(department.name, section.label))}</small></span>
+              <i data-lucide="chevron-right"></i>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+    ` : `
+      <div class="department-section-grid">
+        <section class="panel department-section-main">
+          <div class="section-workspace-head">
+            <div><span class="eyebrow">${escapeHtml(department.name)}</span><h2>${escapeHtml(activeSection.label)}</h2><p>${escapeHtml(submoduleDescription(department.name, activeSection.label))}</p></div>
+            <div class="workspace-actions"><button class="ghost-button" type="button"><i data-lucide="filter"></i> Filtros</button><button class="primary-button" type="button"><i data-lucide="plus"></i> Novo registro</button></div>
+          </div>
+          <div class="visual-table">
+            <div class="visual-table-head"><span>Registro</span><span>Responsável</span><span>Prazo</span><span>Status</span></div>
+            ${queue.length ? queue.slice(0, 6).map((item) => `
+              <div class="visual-table-row">
+                <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>
+                <span>${escapeHtml(item.owner)}</span>
+                <span>${escapeHtml(item.date)}</span>
+                <span><b class="status-dot ${escapeHtml(item.tone)}"></b>${escapeHtml(item.status)}</span>
+              </div>
+            `).join("") : `<div class="department-empty-state"><i data-lucide="${escapeHtml(department.icon)}"></i><strong>Nenhum registro cadastrado</strong><span>A estrutura desta área está pronta para receber os dados operacionais.</span></div>`}
+          </div>
+        </section>
+        <aside class="panel department-side-panel">
+          <span class="eyebrow">Fluxo sugerido</span>
+          <h2>Etapas desta área</h2>
+          <ol>
+            ${["Registrar demanda", "Definir responsável", "Acompanhar execução", "Validar entrega"].map((step, index) => `<li><b>${index + 1}</b><span><strong>${step}</strong><small>${index === 3 ? "Concluir e registrar histórico" : "Manter dados e prazos atualizados"}</small></span></li>`).join("")}
+          </ol>
+        </aside>
+      </div>
+    `}
+  `;
+}
+
+function departmentMetricData(departmentCode) {
+  const units = roadmapUnits();
+  const tasks = units.flatMap((unit) => unit.tasks || []);
+  const openTasks = tasks.filter((task) => getStatus(task) !== "Concluído");
+  const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
+  const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração").length;
+  const accreditation = units.flatMap((unit) => accreditationForUnit(unit));
+  const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
+  const purchases = units.flatMap((unit) => unit.purchases || []);
+  const records = moduleDefinitions[departmentCode] ? recordsFor(departmentCode) : [];
+  const financeRecords = departmentCode === "finance" ? recordsFor("finance", "transaction") : [];
+  const receivable = financeRecords.filter((record) => record.payload?.type === "Receber").reduce((sum, record) => sum + numberValue(record.payload?.amount), 0);
+  const payable = financeRecords.filter((record) => record.payload?.type === "Pagar").reduce((sum, record) => sum + numberValue(record.payload?.amount), 0);
+
+  const sets = {
+    implantation: [
+      { label: "Unidades acompanhadas", value: units.length, detail: `${ready} pronta(s) para inaugurar`, icon: "building-2", tone: "blue" },
+      { label: "Progresso médio", value: `${avg}%`, detail: `${tasks.filter((task) => getStatus(task) === "Concluído").length} etapas concluídas`, icon: "chart-no-axes-column-increasing", tone: "green" },
+      { label: "Pendências abertas", value: openTasks.length, detail: "Roadmap consolidado", icon: "circle-alert", tone: "red" },
+      { label: "Próximas inaugurações", value: units.filter((unit) => (daysTo(unit.openingDate) ?? 999) >= 0).length, detail: "Com data prevista", icon: "calendar-check-2", tone: "purple" },
+    ],
+    commercial: [
+      { label: "Franquias vendidas", value: units.length, detail: "Carteira atual da rede", icon: "badge-dollar-sign", tone: "green" },
+      { label: "Em implantação", value: units.length - ready, detail: "Contratos em evolução", icon: "git-branch", tone: "blue" },
+      { label: "Conversão", value: `${avg}%`, detail: "Referência da operação", icon: "percent", tone: "purple" },
+      { label: "Metas ativas", value: 0, detail: "Aguardando cadastro", icon: "target", tone: "orange" },
+    ],
+    credentialing: [
+      { label: "Procedimentos", value: accreditation.length, detail: "Mapeados na rede", icon: "stethoscope", tone: "blue" },
+      { label: "Concluídos", value: closedAccreditation, detail: `${percentOf(closedAccreditation, accreditation.length)}% da cobertura`, icon: "badge-check", tone: "green" },
+      { label: "Em negociação", value: accreditation.filter((item) => normalizeText(item.status).includes("negoci")).length, detail: "Acompanhamento ativo", icon: "handshake", tone: "orange" },
+      { label: "Documentos pendentes", value: accreditation.filter((item) => !isAccreditationClosed(item.status)).length, detail: "Necessitam análise", icon: "file-warning", tone: "red" },
+    ],
+    hr: [
+      { label: "Colaboradores", value: records.filter((record) => record.recordType === "employee").length, detail: "Base da franquia", icon: "users", tone: "blue" },
+      { label: "Vagas abertas", value: records.filter((record) => record.recordType === "vacancy" && record.status === "Aberta").length, detail: "Recrutamento ativo", icon: "briefcase-business", tone: "green" },
+      { label: "Candidatos", value: records.filter((record) => record.recordType === "candidate").length, detail: "Banco de talentos", icon: "user-search", tone: "purple" },
+      { label: "Treinamentos", value: units.flatMap((unit) => trainingItems(unit)).length, detail: "Trilhas mapeadas", icon: "graduation-cap", tone: "orange" },
+    ],
+    dp: [
+      { label: "Colaboradores ativos", value: records.filter((record) => record.recordType === "employee").length, detail: "Cadastros funcionais", icon: "contact-round", tone: "blue" },
+      { label: "Admissões no mês", value: records.filter((record) => record.recordType === "employee" && isCurrentMonth(record.payload?.admissionDate)).length, detail: "Movimentações recentes", icon: "user-plus", tone: "green" },
+      { label: "Folha atual", value: records.filter((record) => record.recordType === "payroll").length, detail: "Competências cadastradas", icon: "receipt-text", tone: "purple" },
+      { label: "Pendências", value: 0, detail: "Rotina trabalhista", icon: "triangle-alert", tone: "orange" },
+    ],
+    finance: [
+      { label: "A receber", value: money(receivable), detail: "Lançamentos cadastrados", icon: "circle-arrow-down", tone: "green" },
+      { label: "A pagar", value: money(payable), detail: "Compromissos financeiros", icon: "circle-arrow-up", tone: "red" },
+      { label: "Saldo projetado", value: money(receivable - payable), detail: "Receitas menos despesas", icon: "wallet", tone: "blue" },
+      { label: "Conciliações", value: financeRecords.filter((record) => record.status === "Conciliado").length, detail: "Registros conferidos", icon: "refresh-cw", tone: "purple" },
+    ],
+    projects: [
+      { label: "Itens de compra", value: purchases.length, detail: "Projetos de implantação", icon: "shopping-cart", tone: "blue" },
+      { label: "Entregues", value: purchases.filter((item) => getStatus(item) === "Concluído").length, detail: "Compras concluídas", icon: "package-check", tone: "green" },
+      { label: "Em andamento", value: purchases.filter((item) => getStatus(item) === "Em Andamento").length, detail: "Aguardando entrega", icon: "truck", tone: "orange" },
+      { label: "Pendentes", value: purchases.filter((item) => getStatus(item) === "Pendente").length, detail: "Necessitam ação", icon: "package-x", tone: "red" },
+    ],
+  };
+
+  return sets[departmentCode] || [
+    { label: "Registros ativos", value: records.length, detail: "Dados desta área", icon: "layers-3", tone: "blue" },
+    { label: "Concluídos", value: records.filter((record) => ["Concluído", "Aprovado", "Ativo"].includes(record.status)).length, detail: "Entregas finalizadas", icon: "circle-check-big", tone: "green" },
+    { label: "Em andamento", value: records.filter((record) => ["Em Andamento", "Em análise"].includes(record.status)).length, detail: "Fluxos ativos", icon: "loader-circle", tone: "orange" },
+    { label: "Pendências", value: records.filter((record) => record.status === "Pendente").length, detail: "Itens em aberto", icon: "circle-alert", tone: "red" },
+  ];
+}
+
+function departmentQueueData(departmentCode) {
+  const units = roadmapUnits();
+  if (departmentCode === "implantation") {
+    return units.flatMap((unit) => (unit.tasks || []).filter((task) => getStatus(task) !== "Concluído").slice(0, 2).map((task) => ({
+      title: task.process,
+      detail: `${unit.city} · ${task.phase}`,
+      owner: unit.owner || "Implantação",
+      date: formatDate(task.deadline),
+      status: getStatus(task),
+      tone: getStatus(task) === "Em Andamento" ? "warning" : "danger",
+    }))).slice(0, 8);
+  }
+  if (departmentCode === "credentialing") {
+    return units.flatMap((unit) => accreditationForUnit(unit).filter((item) => !isAccreditationClosed(item.status)).slice(0, 2).map((item) => ({
+      title: item.name,
+      detail: unit.city,
+      owner: item.owner,
+      date: displayDate(item.requestDate),
+      status: item.status || "Pendente",
+      tone: "warning",
+    }))).slice(0, 8);
+  }
+  if (departmentCode === "projects") {
+    return units.flatMap((unit) => (unit.purchases || []).filter((item) => getStatus(item) !== "Concluído").slice(0, 2).map((item) => ({
+      title: item.item,
+      detail: unit.city,
+      owner: "Operação",
+      date: "Sem data",
+      status: getStatus(item),
+      tone: "warning",
+    }))).slice(0, 8);
+  }
+  if (moduleDefinitions[departmentCode]) {
+    return recordsFor(departmentCode).slice(0, 8).map((record) => ({
+      title: record.title,
+      detail: record.recordType,
+      owner: record.payload?.owner || "Equipe responsável",
+      date: displayDate(record.payload?.date || record.payload?.dueDate),
+      status: record.status || "Pendente",
+      tone: ["Concluído", "Aprovado", "Ativo"].includes(record.status) ? "success" : "warning",
+    }));
+  }
+  return [];
+}
+
+function departmentQueue(items) {
+  if (!items.length) return `<div class="department-empty-state compact"><i data-lucide="inbox"></i><strong>Nenhuma prioridade registrada</strong><span>Os próximos itens aparecerão aqui quando o módulo receber dados.</span></div>`;
+  return `<div class="priority-list">${items.slice(0, 5).map((item) => `
+    <article><b class="status-dot ${escapeHtml(item.tone)}"></b><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><em>${escapeHtml(item.date)}</em></article>
+  `).join("")}</div>`;
+}
+
+function departmentPerformanceChart(departmentCode) {
+  const base = departmentMetricData(departmentCode).map((metric, index) => {
+    const raw = Number(String(metric.value).replace(/\D/g, "")) || (index + 1) * 12;
+    return Math.min(92, Math.max(18, raw % 100));
+  });
+  return `
+    <div class="department-chart">
+      <div class="chart-y-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div>
+      <div class="chart-bars">
+        ${base.concat(base.slice(0, 2)).map((value, index) => `<span style="--bar:${value}%"><i></i><small>${["Jan", "Fev", "Mar", "Abr", "Mai", "Jun"][index]}</small></span>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function submoduleDescription(departmentName, sectionLabel) {
+  const normalized = normalizeText(sectionLabel);
+  if (normalized.includes("dashboard")) return `Visão consolidada dos indicadores e prioridades de ${departmentName}.`;
+  if (normalized.includes("document")) return "Organização, envio, validação e histórico dos documentos desta área.";
+  if (normalized.includes("indicador") || normalized.includes("relatorio") || normalized.includes("dre")) return "Acompanhamento de resultados, tendências e informações para decisão.";
+  if (normalized.includes("aprov")) return "Fila de análise, responsáveis, decisões e histórico de aprovações.";
+  if (normalized.includes("agenda") || normalized.includes("calendario") || normalized.includes("evento")) return "Compromissos, marcos, responsáveis e prazos organizados por período.";
+  if (normalized.includes("checklist") || normalized.includes("etapa") || normalized.includes("plano")) return "Controle das atividades, responsáveis, evidências e conclusão de cada etapa.";
+  if (normalized.includes("contrato") || normalized.includes("parecer") || normalized.includes("lgpd")) return "Gestão de documentos jurídicos, vigências, análises e conformidade.";
+  return `Workspace dedicado a ${sectionLabel.toLowerCase()}, com registros, responsáveis, prazos e status.`;
+}
 
 function fallbackTenantModules(units) {
   return (units || []).flatMap((unit) => Object.keys({ business: true, ...moduleDefinitions }).map((moduleCode) => ({
@@ -2057,6 +2492,159 @@ function matchesSearch(...values) {
 }
 
 function renderDashboard() {
+  const units = roadmapUnits();
+  const tasks = units.flatMap((unit) => (unit.tasks || []).map((task) => ({ unit, task })));
+  const completed = tasks.filter(({ task }) => getStatus(task) === "Concluído").length;
+  const open = tasks.filter(({ task }) => getStatus(task) !== "Concluído");
+  const critical = open.filter(({ unit, task }) => pendingPriority(task, unit) === "Alta");
+  const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
+  const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração").length;
+  const upcoming = [...units]
+    .filter((unit) => daysTo(unit.openingDate) !== null)
+    .sort((a, b) => (daysTo(a.openingDate) ?? 9999) - (daysTo(b.openingDate) ?? 9999))
+    .slice(0, 4);
+  const ranking = [...units].sort((a, b) => unitProgress(b).percent - unitProgress(a).percent);
+  const recent = tasks
+    .filter(({ task }) => task.actualDate || task.deadline)
+    .sort((a, b) => String(b.task.actualDate || b.task.deadline).localeCompare(String(a.task.actualDate || a.task.deadline)))
+    .slice(0, 6);
+  const modules = ["commercial", "credentialing", "hr", "dp", "finance", "accounting", "marketing", "projects", "quality", "documentation", "legal", "administrative", "bi", "communication", "support"];
+
+  return `
+    <section class="executive-hero">
+      <div class="executive-hero-copy">
+        <span class="hero-label">Gestão integrada da rede</span>
+        <h2>Gestão completa.<br>Resultados reais.<br><strong>Redes que transformam vidas.</strong></h2>
+        <p>Acompanhe em tempo real o desempenho da rede e tome decisões estratégicas com inteligência.</p>
+      </div>
+      <div class="network-map" aria-label="Mapa das franquias 33Doctor no Brasil">
+        <div class="brazil-shape"></div>
+        <div class="map-routes"></div>
+        ${units.map((unit, index) => {
+          const point = mapPointForUnit(unit, index);
+          return `<button class="map-point" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" aria-label="${escapeHtml(unit.city)}"><span></span><small>${escapeHtml(unit.city)}</small></button>`;
+        }).join("")}
+      </div>
+      <div class="network-overview">
+        <div class="overview-title"><span>Panorama geral da rede</span><i data-lucide="globe-2"></i></div>
+        <div class="overview-metrics">
+          <article><small>Total de unidades</small><strong>${units.length}</strong><em>${units.length} monitoradas</em></article>
+          <article><small>Progresso médio</small><strong>${avg}%</strong><em>implantação da rede</em></article>
+          <article><small>Prontas</small><strong>${ready}</strong><em>para inauguração</em></article>
+        </div>
+        <button data-open-view="franchises" type="button"><i data-lucide="map"></i> Ver mapa completo</button>
+      </div>
+    </section>
+
+    <div class="executive-kpi-grid">
+      ${executiveKpi("Progresso da rede", `${avg}%`, `${completed} etapas concluídas`, "chart-no-axes-column-increasing", "green", avg)}
+      ${executiveKpi("Franquias ativas", units.length, `${ready} pronta(s) para inaugurar`, "building-2", "blue", percentOf(ready, units.length))}
+      ${executiveKpi("Credenciamentos", accreditationCountForUnits(units), "procedimentos concluídos", "badge-check", "purple", percentOf(accreditationCountForUnits(units), Math.max(units.length * data.accreditation.procedures.length, 1)))}
+      ${executiveKpi("Pendências críticas", critical.length, `${open.length} atividades em aberto`, "triangle-alert", "red", Math.min(100, critical.length * 5))}
+      ${executiveKpi("Próximas inaugurações", upcoming.length, "unidades com data prevista", "calendar-check-2", "orange", percentOf(upcoming.length, units.length))}
+    </div>
+
+    <div class="executive-main-grid">
+      <div class="executive-main-column">
+        <section class="panel platform-modules-panel">
+          <div class="panel-title-row"><div><span class="eyebrow">Ecossistema 33Doctor</span><h2>Módulos da plataforma</h2></div><button class="text-button" data-open-view="implantation" type="button">Ver implantação <i data-lucide="arrow-right"></i></button></div>
+          <div class="platform-module-grid">
+            ${modules.map((code) => {
+              const department = departmentDefinitions[code];
+              return `<button data-open-view="${escapeHtml(code)}" type="button"><span class="module-icon"><i data-lucide="${escapeHtml(department.icon)}"></i></span><span><strong>${escapeHtml(department.name)}</strong><small>${escapeHtml(department.description)}</small></span><i data-lucide="chevron-right"></i></button>`;
+            }).join("")}
+          </div>
+        </section>
+
+        <div class="executive-analytics-grid">
+          <section class="panel network-performance-panel">
+            <div class="panel-title-row"><div><span class="eyebrow">Desempenho da rede</span><h2>Evolução da implantação</h2></div><span class="period-pill">Últimos 6 meses</span></div>
+            ${executiveLineChart(avg)}
+          </section>
+          <section class="panel network-status-panel">
+            <div class="panel-title-row"><div><span class="eyebrow">Unidades por status</span><h2>Distribuição atual</h2></div></div>
+            ${executiveStatusDonut(units)}
+          </section>
+        </div>
+      </div>
+
+      <aside class="executive-side-column">
+        <section class="panel compact-executive-panel">
+          <div class="panel-title-row"><h2>Alertas importantes</h2><button class="text-button" data-open-view="implantation" type="button">Ver todos</button></div>
+          <div class="executive-alert-list">
+            ${open.slice(0, 4).map(({ unit, task }, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span class="alert-icon ${index === 0 ? "red" : index === 1 ? "orange" : "blue"}"><i data-lucide="${index === 0 ? "triangle-alert" : index === 1 ? "clock-3" : "info"}"></i></span><span><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(task.phase)}</small></span><em>${index === 0 ? "Agora" : `${index + 1}h atrás`}</em></button>`).join("") || empty("Nenhum alerta importante")}
+          </div>
+        </section>
+
+        <section class="panel compact-executive-panel">
+          <div class="panel-title-row"><h2>Agenda e inaugurações</h2><button class="text-button" data-open-view="implantation" type="button">Ver agenda</button></div>
+          <div class="agenda-list">
+            ${upcoming.map((unit) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span class="agenda-date"><strong>${String(new Date(`${unit.openingDate}T12:00:00`).getDate()).padStart(2, "0")}</strong><small>${new Date(`${unit.openingDate}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></span><span><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>Inauguração prevista · ${formatDays(unit.openingDate)}</small></span></button>`).join("") || empty("Nenhuma inauguração agendada")}
+          </div>
+        </section>
+
+        <section class="panel compact-executive-panel quick-access-panel">
+          <div class="panel-title-row"><h2>Acesso rápido</h2></div>
+          <div class="quick-access-grid">
+            <button data-open-view="new-unit" data-platform-only type="button"><i data-lucide="building-2"></i><span>Cadastrar unidade</span></button>
+            <button data-open-view="implantation" type="button"><i data-lucide="list-checks"></i><span>Checklist</span></button>
+            <button data-open-view="support" type="button"><i data-lucide="headset"></i><span>Abrir chamado</span></button>
+            <button data-open-view="documentation" type="button"><i data-lucide="book-open-text"></i><span>Base de conhecimento</span></button>
+            <button data-open-view="bi" type="button"><i data-lucide="file-chart-column"></i><span>Relatório gerencial</span></button>
+            <button data-open-view="communication" type="button"><i data-lucide="newspaper"></i><span>Notícias</span></button>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="executive-bottom-grid">
+      <section class="panel">
+        <div class="panel-title-row"><div><span class="eyebrow">Atividade da rede</span><h2>Atividades recentes</h2></div><i data-lucide="activity"></i></div>
+        <div class="recent-activity-list">${recent.map(({ unit, task }) => `<article><span class="activity-mark"><i data-lucide="${getStatus(task) === "Concluído" ? "circle-check-big" : "clock-3"}"></i></span><span><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(getStatus(task))}</small></span><time>${displayDate(task.actualDate || task.deadline)}</time></article>`).join("") || empty("Nenhuma atividade recente")}</div>
+      </section>
+      <section class="panel">
+        <div class="panel-title-row"><div><span class="eyebrow">Performance</span><h2>Ranking das unidades</h2></div><button class="text-button" data-open-view="bi" type="button">Comparar</button></div>
+        <div class="unit-ranking">${ranking.map((unit, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><b>${index + 1}</b><span><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></span><div><i style="--progress:${unitProgress(unit).percent}%"></i></div><em>${unitProgress(unit).percent}%</em></button>`).join("")}</div>
+      </section>
+    </div>
+
+    <section class="executive-purpose"><i data-lucide="quote"></i><strong>Nosso propósito é cuidar de pessoas e transformar vidas através de uma rede forte, unida e de excelência.</strong><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span></section>
+  `;
+}
+
+function executiveKpi(label, value, detail, icon, tone, progress) {
+  return `<article class="executive-kpi ${escapeHtml(tone)}"><span class="executive-kpi-icon"><i data-lucide="${escapeHtml(icon)}"></i></span><div><small>${escapeHtml(label)}</small><strong>${escapeHtml(String(value))}</strong><em>${escapeHtml(detail)}</em></div><i class="mini-trend" style="--trend:${Math.max(8, Math.min(100, progress))}%"></i></article>`;
+}
+
+function mapPointForUnit(unit, index) {
+  const city = normalizeText(unit.city);
+  const points = {
+    ananindeua: { x: 66, y: 23 },
+    cotia: { x: 62, y: 72 },
+    cuiaba: { x: 45, y: 57 },
+    imperatriz: { x: 61, y: 39 },
+    manaus: { x: 30, y: 27 },
+    uba: { x: 68, y: 66 },
+  };
+  return points[city] || { x: 35 + (index * 9) % 42, y: 28 + (index * 13) % 50 };
+}
+
+function executiveLineChart(avg) {
+  const values = [Math.max(8, avg - 18), Math.max(12, avg - 11), Math.max(15, avg - 14), Math.max(18, avg - 6), Math.max(20, avg - 4), avg];
+  const points = values.map((value, index) => `${index * 20},${92 - value * 0.72}`).join(" ");
+  return `<div class="executive-line-chart"><div class="line-chart-legend"><span><i class="red"></i>Progresso médio</span><span><i class="blue"></i>Novas unidades</span></div><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Evolução da implantação"><g class="grid-lines"><path d="M0 20H100M0 40H100M0 60H100M0 80H100"></path></g><polyline class="line-main" points="${points}"></polyline><polyline class="line-secondary" points="0,78 20,66 40,70 60,58 80,63 100,48"></polyline></svg><div class="line-months">${["Jan", "Fev", "Mar", "Abr", "Mai", "Jun"].map((month) => `<span>${month}</span>`).join("")}</div></div>`;
+}
+
+function executiveStatusDonut(units) {
+  const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração").length;
+  const delayed = units.filter((unit) => ["Em atraso", "Implantação crítica"].includes(unitStatus(unit).label)).length;
+  const active = Math.max(units.length - ready - delayed, 0);
+  const readyStop = percentOf(ready, units.length);
+  const activeStop = readyStop + percentOf(active, units.length);
+  return `<div class="executive-donut-layout"><div class="executive-donut" style="--ready:${readyStop}%;--active:${activeStop}%"><span><strong>${units.length}</strong><small>Unidades</small></span></div><div class="executive-donut-legend"><p><i class="green"></i><span>Prontas</span><strong>${ready}</strong></p><p><i class="blue"></i><span>Em implantação</span><strong>${active}</strong></p><p><i class="red"></i><span>Em atraso</span><strong>${delayed}</strong></p></div></div>`;
+}
+
+function renderImplantationDashboard() {
   const units = roadmapUnits();
   const visibleUnits = units;
   const tasks = visibleUnits.flatMap((unit) => unit.tasks);
@@ -4277,3 +4865,5 @@ function slug(value) {
 function empty(message) {
   return `<div class="empty">${escapeHtml(message)}</div>`;
 }
+
+init();
