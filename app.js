@@ -14,7 +14,6 @@ const state = {
   dashboardUnit: "all",
   dashboardTab: "overview",
   adminTab: "overview",
-  theme: readStorage("appTheme", "light"),
   expandedUnitId: "",
   franchiseWorkspaceUnitId: "",
   unitTabs: readStorage("franchiseUnitTabs", {}),
@@ -53,6 +52,7 @@ const exportButton = document.querySelector("#export-csv");
 const logoutButton = document.querySelector("#logout-button");
 const sourceCount = document.querySelector("#source-count");
 const topbarDate = document.querySelector("#topbar-date");
+const topbarWeekday = document.querySelector("#topbar-weekday");
 const profileToggle = document.querySelector("#profile-toggle");
 const profileMenu = document.querySelector("#profile-menu");
 const profileNameDisplay = document.querySelector("#profile-name-display");
@@ -63,7 +63,6 @@ const profileAvatarPreview = document.querySelector("#profile-avatar-preview");
 const profileNameInput = document.querySelector("#profile-name-input");
 const profilePhotoInput = document.querySelector("#profile-photo-input");
 const profileSave = document.querySelector("#profile-save");
-const themeToggle = document.querySelector("#theme-toggle");
 
 updateSourceCount();
 
@@ -117,9 +116,8 @@ globalSearch.addEventListener("input", (event) => {
   render();
 });
 
-exportButton.addEventListener("click", exportCurrentView);
+if (exportButton) exportButton.addEventListener("click", exportCurrentView);
 logoutButton.addEventListener("click", logout);
-themeToggle.addEventListener("click", toggleTheme);
 profileToggle.addEventListener("click", () => {
   const isOpen = !profileMenu.hidden;
   profileMenu.hidden = isOpen;
@@ -510,32 +508,18 @@ function showLanding() {
   loginScreen.hidden = true;
   appShell.hidden = true;
   landingScreen.hidden = false;
+  refreshIcons();
 }
 
 function showApp() {
   landingScreen.hidden = true;
   loginScreen.hidden = true;
   appShell.hidden = false;
-  applyTheme();
+  appShell.classList.remove("dark-theme");
   updateSourceCount();
   updateProfileUI();
   updateNavigationAccess();
   render();
-}
-
-function toggleTheme() {
-  state.theme = state.theme === "dark" ? "light" : "dark";
-  writeStorage("appTheme", state.theme);
-  applyTheme();
-}
-
-function applyTheme() {
-  const dark = state.theme === "dark";
-  appShell.classList.toggle("dark-theme", dark);
-  themeToggle.setAttribute("aria-label", dark ? "Ativar tema claro" : "Ativar tema escuro");
-  themeToggle.setAttribute("title", dark ? "Usar tema claro" : "Usar tema escuro");
-  themeToggle.innerHTML = `<i data-lucide="${dark ? "sun" : "moon"}"></i>`;
-  refreshIcons();
 }
 
 async function login(form) {
@@ -884,12 +868,14 @@ function refreshIcons() {
 }
 
 function updateTopbarState(currentTitle) {
+  const now = new Date();
+  if (topbarWeekday) {
+    const weekday = now.toLocaleDateString("pt-BR", { weekday: "long" });
+    topbarWeekday.textContent = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  }
   if (topbarDate) {
-    topbarDate.textContent = new Date().toLocaleDateString("pt-BR", {
-      weekday: "long",
-      day: "2-digit",
-      month: "short",
-    });
+    const formatted = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+    topbarDate.textContent = formatted.replace(/ de (\w)/g, (_, letter) => ` de ${letter.toUpperCase()}`);
   }
   document.querySelectorAll("[data-quick-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.quickView === state.view);
@@ -1278,6 +1264,8 @@ function departmentMetricData(departmentCode) {
   const openTasks = tasks.filter((task) => getStatus(task) !== "Concluído");
   const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
   const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração").length;
+  const implementing = Math.max(units.length - ready, 0);
+  const activeUnits = units.filter((unit) => !["Implantação crítica"].includes(unitStatus(unit).label)).length;
   const accreditation = units.flatMap((unit) => accreditationForUnit(unit));
   const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
   const purchases = units.flatMap((unit) => unit.purchases || []);
@@ -2499,6 +2487,9 @@ function renderDashboard() {
   const critical = open.filter(({ unit, task }) => pendingPriority(task, unit) === "Alta");
   const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
   const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração").length;
+  const activeUnits = units.filter((unit) => unitProgress(unit).percent >= 90 && (daysTo(unit.openingDate) ?? 1) < 0).length;
+  const implementing = units.filter((unit) => unitProgress(unit).percent < 90).length;
+  const awaitingOpening = Math.max(0, ready - activeUnits);
   const upcoming = [...units]
     .filter((unit) => daysTo(unit.openingDate) !== null)
     .sort((a, b) => (daysTo(a.openingDate) ?? 9999) - (daysTo(b.openingDate) ?? 9999))
@@ -2519,7 +2510,7 @@ function renderDashboard() {
       </div>
       <div class="network-map" aria-label="Mapa das franquias 33Doctor no Brasil">
         <div class="brazil-shape"></div>
-        <div class="map-routes"></div>
+        <div class="map-routes"><i></i><i></i><i></i></div>
         ${units.map((unit, index) => {
           const point = mapPointForUnit(unit, index);
           return `<button class="map-point" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" aria-label="${escapeHtml(unit.city)}"><span></span><small>${escapeHtml(unit.city)}</small></button>`;
@@ -2528,9 +2519,10 @@ function renderDashboard() {
       <div class="network-overview">
         <div class="overview-title"><span>Panorama geral da rede</span><i data-lucide="globe-2"></i></div>
         <div class="overview-metrics">
-          <article><small>Total de unidades</small><strong>${units.length}</strong><em>${units.length} monitoradas</em></article>
-          <article><small>Progresso médio</small><strong>${avg}%</strong><em>implantação da rede</em></article>
-          <article><small>Prontas</small><strong>${ready}</strong><em>para inauguração</em></article>
+          <article><small>Total de unidades</small><strong>${units.length}</strong><em>rede monitorada</em></article>
+          <article class="ring-metric"><small>Unidades ativas</small><strong>${activeUnits}</strong><i style="--metric:${percentOf(activeUnits, units.length)}%">${percentOf(activeUnits, units.length)}%</i></article>
+          <article class="ring-metric"><small>Em implantação</small><strong>${implementing}</strong><i style="--metric:${percentOf(implementing, units.length)}%">${percentOf(implementing, units.length)}%</i></article>
+          <article class="ring-metric"><small>Aguardando inauguração</small><strong>${awaitingOpening}</strong><i style="--metric:${percentOf(awaitingOpening, units.length)}%">${percentOf(awaitingOpening, units.length)}%</i></article>
         </div>
         <button data-open-view="franchises" type="button"><i data-lucide="map"></i> Ver mapa completo</button>
       </div>
@@ -2538,7 +2530,7 @@ function renderDashboard() {
 
     <div class="executive-kpi-grid">
       ${executiveKpi("Progresso da rede", `${avg}%`, `${completed} etapas concluídas`, "chart-no-axes-column-increasing", "green", avg)}
-      ${executiveKpi("Franquias ativas", units.length, `${ready} pronta(s) para inaugurar`, "building-2", "blue", percentOf(ready, units.length))}
+      ${executiveKpi("Franquias ativas", activeUnits, `${awaitingOpening} aguardando inauguração`, "building-2", "blue", percentOf(activeUnits, units.length))}
       ${executiveKpi("Credenciamentos", accreditationCountForUnits(units), "procedimentos concluídos", "badge-check", "purple", percentOf(accreditationCountForUnits(units), Math.max(units.length * data.accreditation.procedures.length, 1)))}
       ${executiveKpi("Pendências críticas", critical.length, `${open.length} atividades em aberto`, "triangle-alert", "red", Math.min(100, critical.length * 5))}
       ${executiveKpi("Próximas inaugurações", upcoming.length, "unidades com data prevista", "calendar-check-2", "orange", percentOf(upcoming.length, units.length))}
