@@ -33,7 +33,6 @@ module.exports = async function handler(request, response) {
 
     json(response, 200, { ok: true });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, request);
   }
 };
-

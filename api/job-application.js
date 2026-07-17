@@ -1,4 +1,4 @@
-const { getAdminClient, handleError, json, requestBody, requirePost } = require("./_lib/storage");
+const { PublicError, getAdminClient, handleError, json, requestBody, requirePost } = require("./_lib/storage");
 
 const STOP_WORDS = new Set([
   "para", "com", "uma", "que", "das", "dos", "de", "do", "da", "em", "e", "ou", "na", "no",
@@ -51,6 +51,7 @@ async function aiAssessment(vacancy, application, fallback) {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
+        max_output_tokens: 500,
         instructions: "Você avalia aderência profissional de forma objetiva. Não infira idade, gênero, raça, religião, deficiência ou qualquer atributo sensível. Retorne apenas evidências profissionais presentes no texto.",
         input: `VAGA\nTítulo: ${vacancy.title}\nRequisitos: ${vacancy.payload?.requirements || ""}\nDescrição: ${vacancy.payload?.description || ""}\n\nCANDIDATURA\nExperiência: ${application.experienceYears || 0} anos\nCompetências: ${application.skills}\nResumo: ${application.summary}`,
         text: {
@@ -83,9 +84,12 @@ async function aiAssessment(vacancy, application, fallback) {
 }
 
 module.exports = async function handler(request, response) {
-  if (!requirePost(request, response)) return;
+  if (!requirePost(request, response, {
+    maxBodyBytes: 16 * 1024,
+    rateLimit: { limit: 5, windowMs: 10 * 60 * 1000, key: "job-application" },
+  })) return;
   try {
-    const body = requestBody(request);
+    const body = requestBody(request, 16 * 1024);
     if (body.website) {
       json(response, 201, { ok: true });
       return;
@@ -98,25 +102,61 @@ module.exports = async function handler(request, response) {
     const skills = String(body.skills || "").trim();
     const summary = String(body.summary || "").trim();
     if (!tenantCode || !vacancyId || !name || !email || !phone || !skills || !summary || !body.consent) {
-      throw new Error("Preencha todos os campos obrigatórios e autorize o uso dos dados.");
+      throw new PublicError("Preencha todos os campos obrigatórios e autorize o uso dos dados.");
     }
-    if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("Informe um e-mail válido.");
+    if (tenantCode.length > 80 || vacancyId.length > 64 || name.length > 120 || email.length > 254
+      || phone.length > 32 || skills.length > 1000 || summary.length > 4000) {
+      throw new PublicError("Um ou mais campos excedem o tamanho permitido.");
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) throw new PublicError("Informe um e-mail válido.");
+
+    const experienceYears = Number(body.experienceYears || 0);
+    if (!Number.isFinite(experienceYears) || experienceYears < 0 || experienceYears > 80) {
+      throw new PublicError("Informe uma experiência profissional válida.");
+    }
+    const resumeUrl = String(body.resumeUrl || "").trim();
+    if (resumeUrl.length > 1000) throw new PublicError("O link do currículo é muito longo.");
+    if (resumeUrl) {
+      try {
+        const protocol = new URL(resumeUrl).protocol;
+        if (!["https:", "http:"].includes(protocol)) throw new Error("protocol");
+      } catch {
+        throw new PublicError("Informe um link de currículo válido.");
+      }
+    }
 
     const client = getAdminClient();
     const { data: tenant, error: tenantError } = await client.from("tenants").select("id, code, name").eq("code", tenantCode).eq("status", "active").maybeSingle();
     if (tenantError) throw tenantError;
-    if (!tenant) throw new Error("Franquia não encontrada.");
+    if (!tenant) throw new PublicError("Franquia não encontrada.", 404);
     const { data: activation, error: activationError } = await client.from("tenant_modules").select("status").eq("tenant_id", tenant.id).eq("module_code", "hr").maybeSingle();
     if (activationError) throw activationError;
-    if (activation?.status !== "active") throw new Error("O recrutamento não está ativo para esta franquia.");
+    if (activation?.status !== "active") throw new PublicError("O recrutamento não está ativo para esta franquia.", 403);
     const { data: vacancy, error: vacancyError } = await client.from("module_records").select("id, title, status, payload").eq("id", vacancyId).eq("tenant_id", tenant.id).eq("module_code", "hr").eq("record_type", "vacancy").eq("archived", false).maybeSingle();
     if (vacancyError) throw vacancyError;
-    if (!vacancy || vacancy.status !== "Aberta" || vacancy.payload?.public === false) throw new Error("Esta vaga não está mais disponível.");
+    if (!vacancy || vacancy.status !== "Aberta" || vacancy.payload?.public === false) throw new PublicError("Esta vaga não está mais disponível.", 404);
+
+    const { data: existingApplication, error: duplicateError } = await client
+      .from("module_records")
+      .select("id")
+      .eq("tenant_id", tenant.id)
+      .eq("module_code", "hr")
+      .eq("record_type", "candidate")
+      .eq("payload->>email", email)
+      .eq("payload->>vacancyId", vacancy.id)
+      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (duplicateError) throw duplicateError;
+    if (existingApplication) {
+      json(response, 201, { ok: true });
+      return;
+    }
 
     const application = {
       email, phone, skills, summary,
-      experienceYears: Math.max(0, Number(body.experienceYears || 0)),
-      resumeUrl: String(body.resumeUrl || "").trim(),
+      experienceYears,
+      resumeUrl,
     };
     const assessment = await aiAssessment(vacancy, application, heuristicAssessment(vacancy, application));
     const { error } = await client.from("module_records").insert({
@@ -141,6 +181,6 @@ module.exports = async function handler(request, response) {
     if (error) throw error;
     json(response, 201, { ok: true });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, request);
   }
 };

@@ -528,12 +528,18 @@ async function login(form) {
   button.textContent = "Entrando...";
 
   try {
-    const payload = await supabaseRpc("login_app_user", {
-      p_email: form.email.value,
-      p_password: form.password.value,
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: form.email.value,
+        password: form.password.value,
+      }),
     });
-    state.auth = payload;
-    writeStorage("appSession", payload);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error || "Não foi possível entrar.");
+    state.auth = payload.session;
+    writeStorage("appSession", payload.session);
     await loadSupabaseData();
     showApp();
   } catch (error) {

@@ -30,7 +30,6 @@ module.exports = async function handler(request, response) {
     if (error) throw error;
     json(response, 200, { url: data.signedUrl, expiresIn: 300 });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, request);
   }
 };
-

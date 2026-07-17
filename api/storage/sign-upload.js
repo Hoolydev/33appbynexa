@@ -41,7 +41,6 @@ module.exports = async function handler(request, response) {
       expiresIn: 7200,
     });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, request);
   }
 };
-

@@ -1,14 +1,17 @@
-const { getAdminClient, handleError, json } = require("./_lib/storage");
+const { PublicError, getAdminClient, handleError, json } = require("./_lib/storage");
+const { enforceRequest } = require("./_lib/security");
 
 module.exports = async function handler(request, response) {
-  if (request.method !== "GET") {
-    json(response, 405, { error: "Método não permitido." });
-    return;
-  }
+  if (!enforceRequest(request, response, {
+    methods: ["GET"],
+    maxBodyBytes: 1024,
+    rateLimit: { limit: 120, windowMs: 60 * 1000, key: "jobs" },
+  })) return;
 
   try {
     const tenantCode = String(request.query?.tenant || "").trim();
-    if (!tenantCode) throw new Error("Franquia não informada.");
+    if (!tenantCode) throw new PublicError("Franquia não informada.");
+    if (tenantCode.length > 80 || !/^[a-zA-Z0-9._-]+$/.test(tenantCode)) throw new PublicError("Franquia inválida.");
     const client = getAdminClient();
     const { data: tenant, error: tenantError } = await client
       .from("tenants")
@@ -17,7 +20,7 @@ module.exports = async function handler(request, response) {
       .eq("status", "active")
       .maybeSingle();
     if (tenantError) throw tenantError;
-    if (!tenant) throw new Error("Franquia não encontrada.");
+    if (!tenant) throw new PublicError("Franquia não encontrada.", 404);
     const { data: activation, error: activationError } = await client
       .from("tenant_modules")
       .select("status")
@@ -25,7 +28,7 @@ module.exports = async function handler(request, response) {
       .eq("module_code", "hr")
       .maybeSingle();
     if (activationError) throw activationError;
-    if (activation?.status !== "active") throw new Error("O portal de vagas não está ativo para esta franquia.");
+    if (activation?.status !== "active") throw new PublicError("O portal de vagas não está ativo para esta franquia.", 403);
 
     const { data: records, error } = await client
       .from("module_records")
@@ -55,6 +58,6 @@ module.exports = async function handler(request, response) {
 
     json(response, 200, { tenant: { code: tenant.code, name: tenant.name }, jobs });
   } catch (error) {
-    handleError(response, error);
+    handleError(response, error, request);
   }
 };

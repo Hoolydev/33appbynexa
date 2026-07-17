@@ -1,7 +1,9 @@
 const { createClient } = require("@supabase/supabase-js");
+const { PublicError, enforceRequest, json, parseBody, securityLog } = require("./security");
 
 const BUCKET = "tenant-documents";
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png", "webp", "csv", "xls", "xlsx", "doc", "docx"]);
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
@@ -23,27 +25,25 @@ function getAdminClient() {
   });
 }
 
-function json(response, status, payload) {
-  response.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
-  response.setHeader("Cache-Control", "no-store");
-  response.end(JSON.stringify(payload));
+function requirePost(request, response, options = {}) {
+  return enforceRequest(request, response, {
+    methods: ["POST"],
+    sameOrigin: true,
+    maxBodyBytes: 64 * 1024,
+    rateLimit: { limit: 30, windowMs: 60 * 1000 },
+    ...options,
+  });
 }
 
-function requirePost(request, response) {
-  if (request.method === "POST") return true;
-  json(response, 405, { error: "Método não permitido." });
-  return false;
-}
-
-function requestBody(request) {
-  return typeof request.body === "string" ? JSON.parse(request.body || "{}") : request.body || {};
+function requestBody(request, maxBodyBytes = 64 * 1024) {
+  return parseBody(request, maxBodyBytes);
 }
 
 async function authorize(client, body, action) {
   const token = String(body.token || "").trim();
   const tenantId = String(body.tenantId || "").trim();
   const unitId = body.unitId ? String(body.unitId).trim() : null;
-  if (!token || !tenantId) throw new Error("Sessão e franquia são obrigatórias.");
+  if (!token || !tenantId) throw new PublicError("Sessão e franquia são obrigatórias.", 401);
 
   const { data, error } = await client.rpc("authorize_tenant_file", {
     p_token: token,
@@ -62,23 +62,33 @@ function safeSegment(value, fallback) {
 }
 
 function assertFile(fileName, mimeType, sizeBytes) {
-  if (!fileName) throw new Error("Nome do arquivo é obrigatório.");
-  if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error("Formato de arquivo não permitido.");
+  if (!fileName) throw new PublicError("Nome do arquivo é obrigatório.");
+  if (fileName.length > 255) throw new PublicError("Nome do arquivo maior que o limite permitido.");
+  const extension = fileName.toLowerCase().split(".").pop();
+  if (!extension || !ALLOWED_EXTENSIONS.has(extension)) throw new PublicError("Extensão de arquivo não permitida.");
+  if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new PublicError("Formato de arquivo não permitido.");
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_FILE_SIZE) {
-    throw new Error("O arquivo deve ter até 25 MB.");
+    throw new PublicError("O arquivo deve ter até 25 MB.");
   }
 }
 
-function handleError(response, error) {
-  const message = error?.message || "Não foi possível concluir a operação.";
-  const status = /sessão|acesso|perfil|franquia/i.test(message) ? 403 : 400;
-  json(response, status, { error: message });
+function handleError(response, error, request) {
+  const authenticationError = /sessão|acesso|perfil|franquia/i.test(error?.message || "");
+  const status = error?.statusCode || (authenticationError ? 403 : 500);
+  if (request) securityLog("api_error", request, { status, code: error?.code || "internal_error" });
+  if (error?.expose) {
+    json(response, status, { error: error.message });
+    return;
+  }
+  json(response, status, { error: status === 403 ? "Acesso não autorizado." : "Não foi possível concluir a operação." });
 }
 
 module.exports = {
   ALLOWED_MIME_TYPES,
+  ALLOWED_EXTENSIONS,
   BUCKET,
   MAX_FILE_SIZE,
+  PublicError,
   assertFile,
   authorize,
   getAdminClient,
@@ -88,4 +98,3 @@ module.exports = {
   requirePost,
   safeSegment,
 };
-
