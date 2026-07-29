@@ -4633,6 +4633,15 @@ select.empty-status:focus {
   gap: 12px;
 }
 
+.landing-module-grid.single-module {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.landing-module-grid.single-module article {
+  min-height: 260px;
+  padding: 30px;
+}
+
 .landing-module-grid article {
   display: flex;
   min-height: 300px;
