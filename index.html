@@ -109,7 +109,7 @@
             <article class="featured"><span>01</span><strong>Negócios e Implantação</strong><p>Roadmap, compras, documentos, pendências, credenciamentos e inauguração.</p><em>Ativo por padrão</em></article>
             <article><span>02</span><strong>Recursos Humanos</strong><p>Vagas, candidatos, triagem, entrevistas e inteligência aplicada à seleção.</p><em>Sob ativação</em></article>
             <article><span>03</span><strong>Departamento Pessoal</strong><p>Colaboradores, admissões, folha, benefícios, férias e obrigações.</p><em>Sob ativação</em></article>
-            <article><span>04</span><strong>Contabilidade</strong><p>Documentos fiscais, competências, guias, conferências e devolutivas.</p><em>Sob ativação</em></article>
+            <article><span>04</span><strong>Projetos e Compras</strong><p>Obras, fornecedores, materiais, entregas, evidências e checklists da unidade.</p><em>Gestão operacional</em></article>
             <article><span>05</span><strong>Financeiro</strong><p>Contas, fluxo de caixa, orçamento, conciliação e indicadores.</p><em>Sob ativação</em></article>
           </div>
         </section>
@@ -169,25 +169,18 @@
           <span class="nav-section-label">Visão geral</span>
           <button class="nav-item active" data-view="dashboard" type="button"><i data-lucide="house"></i><span>Página inicial</span></button>
           <button class="nav-item" data-view="franchises" type="button"><i data-lucide="building-2"></i><span>Franquias</span></button>
-          <button class="nav-item" data-view="implantation" type="button"><i data-lucide="route"></i><span>Implantação</span></button>
+          <button class="nav-item" data-view="implantation" type="button"><i data-lucide="route"></i><span>Momento de Implantação</span></button>
           <span class="nav-section-label">Operação</span>
-          <button class="nav-item" data-view="commercial" type="button"><i data-lucide="briefcase-business"></i><span>Comercial</span></button>
           <button class="nav-item" data-view="credentialing" type="button"><i data-lucide="badge-check"></i><span>Credenciamento</span></button>
           <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button"><i data-lucide="users"></i><span>RH</span><small data-module-state="hr">Bloqueado</small></button>
           <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button"><i data-lucide="contact-round"></i><span>Departamento Pessoal</span><small data-module-state="dp">Bloqueado</small></button>
           <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button"><i data-lucide="wallet-cards"></i><span>Financeiro</span><small data-module-state="finance">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="accounting" data-module-nav="accounting" type="button"><i data-lucide="calculator"></i><span>Contabilidade</span><small data-module-state="accounting">Bloqueado</small></button>
-          <button class="nav-item" data-view="marketing" type="button"><i data-lucide="megaphone"></i><span>Marketing</span></button>
           <button class="nav-item" data-view="projects" type="button"><i data-lucide="folder-kanban"></i><span>Projetos</span></button>
           <button class="nav-item" data-view="quality" type="button"><i data-lucide="sparkles"></i><span>Qualidade</span></button>
           <button class="nav-item" data-view="documentation" type="button"><i data-lucide="files"></i><span>Documentação</span></button>
-          <button class="nav-item" data-view="legal" type="button"><i data-lucide="scale"></i><span>Jurídico</span></button>
-          <button class="nav-item" data-view="administrative" type="button"><i data-lucide="settings-2"></i><span>Administrativo</span></button>
-          <button class="nav-item" data-view="bi" type="button"><i data-lucide="chart-no-axes-combined"></i><span>Relatórios e BI</span></button>
           <button class="nav-item" data-view="communication" type="button"><i data-lucide="messages-square"></i><span>Comunicação</span></button>
           <button class="nav-item" data-view="support" type="button"><i data-lucide="headset"></i><span>Suporte</span></button>
           <span class="nav-section-label" data-platform-only>Sistema</span>
-          <button class="nav-item" data-view="new-unit" data-platform-only type="button"><i data-lucide="plus-square"></i><span>Nova franquia</span></button>
           <button class="nav-item" data-view="settings" data-platform-only type="button"><i data-lucide="shield-check"></i><span>Configurações</span></button>
         </nav>
         <div class="sidebar-support-card">
@@ -242,13 +235,14 @@
               <input id="global-search" type="search" placeholder="Buscar na plataforma" />
             </label>
             <div class="top-action-buttons">
-              <button class="icon-button notification-button" type="button" aria-label="Notificações" title="Notificações"><i data-lucide="bell"></i><span>8</span></button>
-              <button class="icon-button notification-button" type="button" aria-label="Mensagens" title="Mensagens"><i data-lucide="message-circle"></i><span>3</span></button>
+              <button id="notification-toggle" class="icon-button notification-button" type="button" aria-label="Abrir notificações" aria-expanded="false" title="Notificações"><i data-lucide="bell"></i><span id="notification-count">0</span></button>
               <button class="date-control" type="button"><i data-lucide="calendar-days"></i><span><strong id="topbar-weekday">Hoje</strong><small id="topbar-date">Visão da rede</small></span><i data-lucide="chevron-down"></i></button>
             </div>
           </div>
         </header>
 
+        <section id="notification-bar" class="notification-bar" aria-label="Notificações recentes"></section>
+        <aside id="notification-panel" class="notification-panel" aria-label="Central de notificações" hidden></aside>
         <section id="app" class="content" aria-live="polite"></section>
       </main>
     </div>
@@ -256,6 +250,6 @@
     <script src="./assets/vendor/lucide.min.js"></script>
     <script src="./supabase-config.js"></script>
     <script src="./data.js"></script>
-    <script src="./app.js?v=20260716h"></script>
+    <script src="./app.js?v=20260728a"></script>
   </body>
 </html>

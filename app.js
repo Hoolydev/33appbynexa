@@ -32,13 +32,16 @@ const state = {
   selectedTenantId: "",
   departmentRecords: readStorage("departmentRecords", {}),
   departmentSections: readStorage("departmentSections", {}),
+  departmentUnitIds: readStorage("departmentUnitIds", {}),
   moduleLoaded: {},
   moduleLoading: {},
   moduleEditing: {},
+  notificationReadIds: readStorage("notificationReadIds", []),
   loading: false,
 };
 
 const statusOptions = ["Concluído", "Em Andamento", "Pendente", "Sem status"];
+const removedModuleCodes = new Set(["commercial", "marketing", "legal", "administrative", "bi", "accounting"]);
 const storageReferencePrefix = "storage:";
 const localFileReferencePrefix = "local-file:";
 
@@ -63,6 +66,10 @@ const profileAvatarPreview = document.querySelector("#profile-avatar-preview");
 const profileNameInput = document.querySelector("#profile-name-input");
 const profilePhotoInput = document.querySelector("#profile-photo-input");
 const profileSave = document.querySelector("#profile-save");
+const notificationToggle = document.querySelector("#notification-toggle");
+const notificationCount = document.querySelector("#notification-count");
+const notificationBar = document.querySelector("#notification-bar");
+const notificationPanel = document.querySelector("#notification-panel");
 
 updateSourceCount();
 
@@ -126,11 +133,34 @@ profileToggle.addEventListener("click", () => {
 profileSave.addEventListener("click", saveProfile);
 profileMenu.addEventListener("submit", (event) => event.preventDefault());
 profilePhotoInput.addEventListener("change", updateProfilePhoto);
+notificationToggle.addEventListener("click", () => {
+  const isOpen = !notificationPanel.hidden;
+  notificationPanel.hidden = isOpen;
+  notificationToggle.setAttribute("aria-expanded", String(!isOpen));
+});
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".profile-control")) {
     profileMenu.hidden = true;
     profileToggle.setAttribute("aria-expanded", "false");
+  }
+  if (!event.target.closest("#notification-panel") && !event.target.closest("#notification-toggle") && !event.target.closest("#notification-bar")) {
+    notificationPanel.hidden = true;
+    notificationToggle.setAttribute("aria-expanded", "false");
+  }
+
+  const notificationAction = event.target.closest("[data-notification-action]");
+  if (notificationAction) {
+    openNotification(notificationAction);
+  }
+  const markNotification = event.target.closest("[data-mark-notification]");
+  if (markNotification) {
+    markNotificationRead(markNotification.dataset.markNotification);
+  }
+  if (event.target.closest("[data-mark-all-notifications]")) {
+    state.notificationReadIds = buildNotifications().map((item) => item.id);
+    writeStorage("notificationReadIds", state.notificationReadIds);
+    renderNotificationCenter();
   }
 });
 
@@ -194,6 +224,13 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-admin-module-status]")) {
     adminSetModuleStatus(target);
   }
+  if (target.matches("[data-department-unit]")) {
+    state.departmentUnitIds[target.dataset.departmentUnit] = target.value;
+    const unit = unitForId(target.value);
+    if (unit) state.selectedTenantId = unit.tenantId || unit.id;
+    writeStorage("departmentUnitIds", state.departmentUnitIds);
+    render();
+  }
 });
 
 app.addEventListener("click", (event) => {
@@ -207,7 +244,15 @@ app.addEventListener("click", (event) => {
 
   const openView = event.target.closest("[data-open-view]");
   if (openView) {
-    state.view = openView.dataset.openView;
+    state.view = removedModuleCodes.has(openView.dataset.openView) ? "dashboard" : openView.dataset.openView;
+    activateNav(state.view === "new-unit" ? "franchises" : state.view);
+    render();
+  }
+
+  const breadcrumbView = event.target.closest("[data-breadcrumb-view]");
+  if (breadcrumbView) {
+    state.view = breadcrumbView.dataset.breadcrumbView;
+    if (state.view === "franchises") state.franchiseWorkspaceUnitId = "";
     activateNav(state.view);
     render();
   }
@@ -251,6 +296,11 @@ app.addEventListener("click", (event) => {
   const createDraft = event.target.closest("[data-create-draft]");
   if (createDraft) {
     createNewDraft();
+  }
+
+  const saveDepartmentRecordButton = event.target.closest("[data-save-department-record]");
+  if (saveDepartmentRecordButton) {
+    saveDepartmentRecord(saveDepartmentRecordButton);
   }
 
   const unitTab = event.target.closest("[data-unit-tab]");
@@ -364,7 +414,7 @@ async function init() {
     })).filter((tenant, index, tenants) => tenants.findIndex((item) => item.id === tenant.id) === index);
     state.adminData = { tenants: previewTenants, users: [], requests: [] };
     state.selectedTenantId = previewTenants[0]?.id || "";
-    state.tenantModules = previewTenants.flatMap((tenant) => ["hr", "dp", "accounting", "finance"].map((moduleCode) => ({
+    state.tenantModules = previewTenants.flatMap((tenant) => ["hr", "dp", "finance"].map((moduleCode) => ({
       tenantId: tenant.id,
       moduleCode,
       status: "active",
@@ -829,6 +879,7 @@ function updateSourceCount() {
 }
 
 function render() {
+  if (removedModuleCodes.has(state.view)) state.view = "dashboard";
   const titles = {
     dashboard: "Página inicial",
     franchises: "Franquias",
@@ -836,10 +887,9 @@ function render() {
     roadmap: "Roadmap",
     purchases: "Compras",
     accreditation: "Credenciamentos",
-    "new-unit": "Nova franquia",
+    "new-unit": "Adicionar Nova Franquia",
     hr: "Recursos Humanos",
     dp: "Departamento Pessoal",
-    accounting: "Contabilidade",
     finance: "Financeiro",
     admin: "Administração",
     settings: "Configurações",
@@ -858,15 +908,61 @@ function render() {
     "new-unit": renderNewUnit,
     hr: () => renderDepartmentHub("hr"),
     dp: () => renderDepartmentHub("dp"),
-    accounting: () => renderDepartmentHub("accounting"),
     finance: () => renderDepartmentHub("finance"),
     admin: renderAdminCenter,
     settings: () => renderDepartmentHub("settings"),
   };
-  app.innerHTML = (views[state.view] || (departmentDefinitions[state.view] ? () => renderDepartmentHub(state.view) : renderDashboard))();
+  const viewRenderer = views[state.view] || (departmentDefinitions[state.view] && !removedModuleCodes.has(state.view) ? () => renderDepartmentHub(state.view) : renderDashboard);
+  app.innerHTML = `${renderBreadcrumb()}${viewRenderer()}`;
   updateNavigationAccess();
   applyViewPermissions();
+  renderNotificationCenter();
   refreshIcons();
+}
+
+function renderBreadcrumb() {
+  const parts = [];
+  const add = (label, view = "") => parts.push({ label, view });
+  if (state.view === "dashboard") {
+    add("Visão Geral");
+    add("Página Inicial");
+  } else if (state.view === "franchises") {
+    add("Visão Geral", "dashboard");
+    add("Franquias", state.franchiseWorkspaceUnitId ? "franchises" : "");
+    const unit = roadmapUnits().find((item) => item.id === state.franchiseWorkspaceUnitId);
+    if (unit) add(unit.name || `${unit.city} ${unit.state || ""}`);
+  } else if (state.view === "new-unit") {
+    add("Visão Geral", "dashboard");
+    add("Franquias", "franchises");
+    add("Adicionar Nova Franquia");
+  } else if (state.view === "implantation") {
+    const department = departmentDefinitions.implantation;
+    const sectionId = state.departmentSections.implantation || department.sections[0].id;
+    const section = department.sections.find((item) => item.id === sectionId) || department.sections[0];
+    add("Visão Geral", "dashboard");
+    add("Momento de Implantação");
+    add(section.label);
+  } else if (departmentDefinitions[state.view]) {
+    const department = departmentDefinitions[state.view];
+    const sectionId = state.departmentSections[state.view] || department.sections[0].id;
+    const section = department.sections.find((item) => item.id === sectionId) || department.sections[0];
+    add(state.view === "settings" ? "Sistema" : "Operação");
+    add(department.name);
+    add(section.label);
+  } else {
+    add("Visão Geral", "dashboard");
+    add("Página Inicial");
+  }
+
+  return `
+    <nav class="app-breadcrumb" aria-label="Caminho de navegação">
+      <i data-lucide="map-pin"></i>
+      ${parts.map((part, index) => `
+        ${index ? '<i data-lucide="chevron-right"></i>' : ""}
+        ${part.view ? `<button data-breadcrumb-view="${escapeHtml(part.view)}" type="button">${escapeHtml(part.label)}</button>` : `<span>${escapeHtml(part.label)}</span>`}
+      `).join("")}
+    </nav>
+  `;
 }
 
 function refreshIcons() {
@@ -888,6 +984,140 @@ function updateTopbarState(currentTitle) {
   });
   if (title) title.textContent = currentTitle;
   updateProfileUI();
+}
+
+function buildNotifications() {
+  const units = roadmapUnits();
+  const notifications = [];
+  units.forEach((unit) => {
+    const progress = unitProgress(unit);
+    const status = unitStatus(unit);
+    if (progress.percent >= 90) {
+      notifications.push({
+        id: `ready-${unit.id}`,
+        tone: "success",
+        icon: "badge-check",
+        title: `${unit.city} está pronta para inauguração`,
+        detail: `${progress.percent}% do roadmap concluído. Revise os últimos marcos da unidade.`,
+        unitId: unit.id,
+        view: "franchises",
+      });
+    }
+    if (["Implantação crítica", "Em atraso"].includes(status.label)) {
+      notifications.push({
+        id: `risk-${unit.id}`,
+        tone: "danger",
+        icon: "triangle-alert",
+        title: `${unit.city} exige atenção`,
+        detail: `${status.label} · ${formatDays(unit.openingDate)}.`,
+        unitId: unit.id,
+        view: "franchises",
+      });
+    }
+  });
+
+  units.flatMap((unit) => (unit.tasks || [])
+    .filter((task) => getStatus(task) !== "Concluído" && pendingPriority(task, unit) === "Alta")
+    .map((task) => ({ unit, task })))
+    .slice(0, 5)
+    .forEach(({ unit, task }) => notifications.push({
+      id: `task-${unit.id}-${task.id}`,
+      tone: "warning",
+      icon: "clock-alert",
+      title: task.process,
+      detail: `${unit.city} · ${task.phase} · ${formatDate(task.deadline)}`,
+      unitId: unit.id,
+      view: "franchises",
+    }));
+
+  (state.adminData?.requests || [])
+    .filter((request) => request.status === "pending")
+    .slice(0, 4)
+    .forEach((request) => notifications.push({
+      id: `request-${request.tenantId}-${request.moduleCode}`,
+      tone: "info",
+      icon: "inbox",
+      title: `Solicitação de ${request.moduleName || moduleDefinitions[request.moduleCode]?.name || "serviço"}`,
+      detail: `${request.tenantName} aguarda uma decisão administrativa.`,
+      view: "settings",
+      adminTab: "requests",
+    }));
+
+  if (!notifications.length) {
+    notifications.push({
+      id: "system-ready",
+      tone: "success",
+      icon: "shield-check",
+      title: "Operação acompanhada",
+      detail: "Não há alertas críticos no momento. As notificações continuarão disponíveis aqui.",
+      view: "dashboard",
+    });
+  }
+  return notifications.slice(0, 18);
+}
+
+function renderNotificationCenter() {
+  if (!notificationBar || !notificationPanel || !notificationCount) return;
+  const notifications = buildNotifications();
+  const readIds = new Set(state.notificationReadIds);
+  const unread = notifications.filter((item) => !readIds.has(item.id));
+  const featured = unread[0] || notifications[0];
+  notificationCount.textContent = String(unread.length);
+  notificationCount.hidden = unread.length === 0;
+
+  notificationBar.innerHTML = `
+    <button class="notification-bar-main" data-notification-action="${escapeHtml(featured.id)}" type="button">
+      <span class="notification-tone ${escapeHtml(featured.tone)}"><i data-lucide="${escapeHtml(featured.icon)}"></i></span>
+      <span><small>Notificação em destaque</small><strong>${escapeHtml(featured.title)}</strong><em>${escapeHtml(featured.detail)}</em></span>
+    </button>
+    <button class="notification-bar-all" type="button" data-notification-action="panel">
+      Ver todas <span>${notifications.length}</span>
+    </button>
+  `;
+  notificationPanel.innerHTML = `
+    <div class="notification-panel-head">
+      <div><span class="eyebrow">Acompanhamento contínuo</span><h2>Central de notificações</h2></div>
+      <button class="text-button" data-mark-all-notifications type="button">Marcar todas como lidas</button>
+    </div>
+    <div class="notification-panel-list">
+      ${notifications.map((item) => `
+        <article class="${readIds.has(item.id) ? "read" : "unread"}">
+          <button class="notification-item-main" data-notification-action="${escapeHtml(item.id)}" type="button">
+            <span class="notification-tone ${escapeHtml(item.tone)}"><i data-lucide="${escapeHtml(item.icon)}"></i></span>
+            <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>
+            <i data-lucide="chevron-right"></i>
+          </button>
+          ${readIds.has(item.id) ? '<span class="notification-read-label">Lida</span>' : `<button class="notification-read-button" data-mark-notification="${escapeHtml(item.id)}" type="button">Marcar como lida</button>`}
+        </article>
+      `).join("")}
+    </div>
+  `;
+  refreshIcons();
+}
+
+function markNotificationRead(id) {
+  if (!state.notificationReadIds.includes(id)) state.notificationReadIds.push(id);
+  writeStorage("notificationReadIds", state.notificationReadIds);
+  renderNotificationCenter();
+}
+
+function openNotification(button) {
+  const id = button.dataset.notificationAction;
+  if (id === "panel") {
+    notificationPanel.hidden = false;
+    notificationToggle.setAttribute("aria-expanded", "true");
+    return;
+  }
+  const notification = buildNotifications().find((item) => item.id === id);
+  if (!notification) return;
+  markNotificationRead(id);
+  if (notification.adminTab) state.adminTab = notification.adminTab;
+  if (notification.unitId) state.franchiseWorkspaceUnitId = notification.unitId;
+  state.view = notification.view || "dashboard";
+  activateNav(state.view === "new-unit" ? "franchises" : state.view);
+  notificationPanel.hidden = true;
+  notificationToggle.setAttribute("aria-expanded", "false");
+  render();
 }
 
 function updateProfileUI() {
@@ -1146,8 +1376,8 @@ function renderDepartmentHub(departmentCode) {
         </div>
       </div>
       <div class="department-header-actions">
-        ${["hr", "dp", "finance", "accounting"].includes(departmentCode) ? tenantSelector() : ""}
-        <span class="interface-status"><i data-lucide="layout-dashboard"></i> Estrutura visual</span>
+        ${departmentCode === "settings" ? "" : departmentUnitSelector(departmentCode)}
+        <span class="interface-status live"><i data-lucide="database-zap"></i> Operação editável</span>
       </div>
     </section>
 
@@ -1199,6 +1429,9 @@ function renderDepartmentVisualWorkspace(departmentCode, department, activeSecti
   const isDashboard = activeSection.id.includes("dashboard") || activeSection === department.sections[0];
   const metrics = departmentMetricData(departmentCode);
   const queue = departmentQueueData(departmentCode);
+  const unit = selectedDepartmentUnit(departmentCode);
+  const recordType = departmentOperationalRecordType(departmentCode, activeSection.id);
+  const operationalRows = departmentOperationalRecords(recordType, unit?.id);
 
   return `
     <div class="department-metric-strip">
@@ -1238,30 +1471,141 @@ function renderDepartmentVisualWorkspace(departmentCode, department, activeSecti
         <section class="panel department-section-main">
           <div class="section-workspace-head">
             <div><span class="eyebrow">${escapeHtml(department.name)}</span><h2>${escapeHtml(activeSection.label)}</h2><p>${escapeHtml(submoduleDescription(department.name, activeSection.label))}</p></div>
-            <div class="workspace-actions"><button class="ghost-button" type="button"><i data-lucide="filter"></i> Filtros</button><button class="primary-button" type="button"><i data-lucide="plus"></i> Novo registro</button></div>
+            <span class="module-live-indicator"><i data-lucide="save"></i> Dados salvos por unidade</span>
           </div>
-          <div class="visual-table">
-            <div class="visual-table-head"><span>Registro</span><span>Responsável</span><span>Prazo</span><span>Status</span></div>
-            ${queue.length ? queue.slice(0, 6).map((item) => `
-              <div class="visual-table-row">
-                <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>
-                <span>${escapeHtml(item.owner)}</span>
-                <span>${escapeHtml(item.date)}</span>
-                <span><b class="status-dot ${escapeHtml(item.tone)}"></b>${escapeHtml(item.status)}</span>
+          ${unit ? `
+            ${canManageTenant(unit.tenantId || unit.id) ? renderDepartmentRecordForm(departmentCode, activeSection, unit, recordType) : ""}
+            <div class="department-operational-list">
+              <div class="section-title-row">
+                <div><span class="eyebrow">Histórico da unidade</span><h2>Registros de ${escapeHtml(activeSection.label)}</h2></div>
+                <span class="badge info">${operationalRows.length} registro(s)</span>
               </div>
-            `).join("") : `<div class="department-empty-state"><i data-lucide="${escapeHtml(department.icon)}"></i><strong>Nenhum registro cadastrado</strong><span>A estrutura desta área está pronta para receber os dados operacionais.</span></div>`}
-          </div>
+              ${renderEditableOperationalTable(recordType, operationalRows, departmentOperationalColumns(), "Nenhum registro cadastrado nesta área.")}
+            </div>
+          ` : `<div class="department-empty-state"><i data-lucide="building-2"></i><strong>Nenhuma franquia disponível</strong><span>Cadastre uma franquia para iniciar os registros operacionais.</span></div>`}
         </section>
         <aside class="panel department-side-panel">
-          <span class="eyebrow">Fluxo sugerido</span>
-          <h2>Etapas desta área</h2>
+          <span class="eyebrow">Como acessar</span>
+          <h2>Caminho desta área</h2>
+          <div class="module-access-path"><span>Operação</span><i data-lucide="chevron-right"></i><span>${escapeHtml(department.name)}</span><i data-lucide="chevron-right"></i><strong>${escapeHtml(activeSection.label)}</strong></div>
+          <span class="eyebrow operational-guide-label">Fluxo de atualização</span>
           <ol>
-            ${["Registrar demanda", "Definir responsável", "Acompanhar execução", "Validar entrega"].map((step, index) => `<li><b>${index + 1}</b><span><strong>${step}</strong><small>${index === 3 ? "Concluir e registrar histórico" : "Manter dados e prazos atualizados"}</small></span></li>`).join("")}
+            ${["Registrar demanda e prioridade", "Definir responsável e prazo", "Anexar evidências e observações", "Salvar a atualização"].map((step, index) => `<li><b>${index + 1}</b><span><strong>${step}</strong><small>${index === 3 ? "Os dados ficam vinculados à franquia" : "Mantenha o histórico operacional completo"}</small></span></li>`).join("")}
           </ol>
         </aside>
       </div>
     `}
   `;
+}
+
+function selectedDepartmentUnit(departmentCode) {
+  const units = roadmapUnits();
+  if (!units.length) return null;
+  const preferredId = state.departmentUnitIds[departmentCode];
+  const tenantUnit = units.find((unit) => (unit.tenantId || unit.id) === state.selectedTenantId);
+  return units.find((unit) => unit.id === preferredId) || tenantUnit || units[0];
+}
+
+function departmentUnitSelector(departmentCode) {
+  const units = roadmapUnits();
+  const selected = selectedDepartmentUnit(departmentCode);
+  if (!units.length) return "";
+  return `
+    <label class="department-unit-selector">
+      <span>Franquia</span>
+      <select data-department-unit="${escapeHtml(departmentCode)}">
+        ${units.map((unit) => `<option value="${escapeHtml(unit.id)}"${selected?.id === unit.id ? " selected" : ""}>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function departmentOperationalRecordType(departmentCode, sectionId) {
+  return `department:${departmentCode}:${sectionId}`;
+}
+
+function departmentOperationalRecords(recordType, unitId) {
+  return Object.values(data.operationalRecordsByKey || {})
+    .filter((record) => record.recordType === recordType && record.unitId === unitId && !record.hidden)
+    .map((record) => ({
+      ...record,
+      title: record.title || "Registro operacional",
+      owner: record.owner || record.responsible || "",
+      deadline: record.deadline || record.dueDate || "",
+      status: record.status || "Pendente",
+      priority: record.priority || "Média",
+      notes: record.notes || "",
+      attachment: record.attachment || "",
+    }));
+}
+
+function departmentOperationalColumns() {
+  return [
+    { key: "title", label: "Registro", minWidth: 190 },
+    { key: "owner", label: "Responsável", minWidth: 145 },
+    { key: "deadline", label: "Prazo", type: "date", minWidth: 135 },
+    { key: "status", label: "Status", type: "status", options: ["Pendente", "Em Andamento", "Em análise", "Concluído", "Cancelado"], minWidth: 145 },
+    { key: "priority", label: "Prioridade", type: "select", options: ["Baixa", "Média", "Alta", "Crítica"], minWidth: 115 },
+    { key: "notes", label: "Observações", type: "textarea", minWidth: 220 },
+    { key: "attachment", label: "Anexo", type: "attachment", minWidth: 190 },
+  ];
+}
+
+function renderDepartmentRecordForm(departmentCode, activeSection, unit, recordType) {
+  return `
+    <form class="department-operation-form" data-department-record-form data-unit-id="${escapeHtml(unit.id)}" data-record-type="${escapeHtml(recordType)}">
+      <div class="department-operation-form-head">
+        <div><span class="eyebrow">Novo registro</span><h3>${escapeHtml(activeSection.label)}</h3></div>
+        <span class="badge info">${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</span>
+      </div>
+      <div class="department-operation-fields">
+        <label class="span-2"><span>Registro</span><input name="title" required placeholder="Descreva a demanda, material ou atividade" /></label>
+        <label><span>Responsável</span><input name="owner" placeholder="Nome ou equipe" /></label>
+        <label><span>Prazo</span><input name="deadline" type="date" /></label>
+        <label><span>Status</span><select name="status"><option>Pendente</option><option>Em Andamento</option><option>Em análise</option><option>Concluído</option><option>Cancelado</option></select></label>
+        <label><span>Prioridade</span><select name="priority"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></label>
+        <label class="span-2"><span>Observações</span><textarea name="notes" rows="3" placeholder="Registre contexto, decisões e próximos passos"></textarea></label>
+        <div class="module-form-field span-2"><span>Anexo</span>${attachmentControl("", unit, recordType, 'name="attachment"', "business")}</div>
+      </div>
+      <div class="department-operation-actions">
+        <span><i data-lucide="paperclip"></i> Arquivos e alterações ficam vinculados à franquia selecionada.</span>
+        <button class="primary-button" data-save-department-record type="button"><i data-lucide="save"></i> Salvar registro</button>
+      </div>
+    </form>
+  `;
+}
+
+async function saveDepartmentRecord(button) {
+  const form = button.closest("[data-department-record-form]");
+  if (!form || !form.reportValidity()) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const item = {
+    unitId: form.dataset.unitId,
+    recordType: form.dataset.recordType,
+    recordId: `record-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    values,
+  };
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  try {
+    setLocalOperationalRecord(item);
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    if (supabaseEnabled && state.auth?.token) {
+      await supabaseRpc("update_unit_operational_record", {
+        p_token: state.auth.token,
+        p_unit_id: item.unitId,
+        p_record_type: item.recordType,
+        p_record_id: item.recordId,
+        p_payload: item.values,
+      });
+    }
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível salvar o registro operacional.");
+  }
 }
 
 function departmentMetricData(departmentCode) {
@@ -1275,7 +1619,9 @@ function departmentMetricData(departmentCode) {
   const accreditation = units.flatMap((unit) => accreditationForUnit(unit));
   const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
   const purchases = units.flatMap((unit) => unit.purchases || []);
-  const records = moduleDefinitions[departmentCode] ? recordsFor(departmentCode) : [];
+  const genericDepartmentRecords = Object.values(data.operationalRecordsByKey || {})
+    .filter((record) => record.recordType?.startsWith(`department:${departmentCode}:`) && !record.hidden);
+  const records = moduleDefinitions[departmentCode] ? [...recordsFor(departmentCode), ...genericDepartmentRecords] : genericDepartmentRecords;
   const financeRecords = departmentCode === "finance" ? recordsFor("finance", "transaction") : [];
   const receivable = financeRecords.filter((record) => record.payload?.type === "Receber").reduce((sum, record) => sum + numberValue(record.payload?.amount), 0);
   const payable = financeRecords.filter((record) => record.payload?.type === "Pagar").reduce((sum, record) => sum + numberValue(record.payload?.amount), 0);
@@ -1375,7 +1721,17 @@ function departmentQueueData(departmentCode) {
       tone: ["Concluído", "Aprovado", "Ativo"].includes(record.status) ? "success" : "warning",
     }));
   }
-  return [];
+  return Object.values(data.operationalRecordsByKey || {})
+    .filter((record) => record.recordType?.startsWith(`department:${departmentCode}:`) && !record.hidden)
+    .slice(0, 8)
+    .map((record) => ({
+      title: record.title || "Registro operacional",
+      detail: unitForId(record.unitId)?.city || departmentDefinitions[departmentCode]?.name || "Operação",
+      owner: record.owner || "Equipe responsável",
+      date: displayDate(record.deadline),
+      status: record.status || "Pendente",
+      tone: ["Concluído", "Aprovado", "Ativo"].includes(record.status) ? "success" : "warning",
+    }));
 }
 
 function departmentQueue(items) {
@@ -1413,7 +1769,7 @@ function submoduleDescription(departmentName, sectionLabel) {
 }
 
 function fallbackTenantModules(units) {
-  return (units || []).flatMap((unit) => Object.keys({ business: true, ...moduleDefinitions }).map((moduleCode) => ({
+  return (units || []).flatMap((unit) => Object.keys({ business: true, ...moduleDefinitions }).filter((moduleCode) => !removedModuleCodes.has(moduleCode)).map((moduleCode) => ({
     tenantId: unit.tenantId || unit.id,
     moduleCode,
     status: moduleCode === "business" ? "active" : "locked",
@@ -2012,7 +2368,7 @@ function renderAdminTabContent(tab, admin, requests, pendingRequests, activeModu
 }
 
 function renderAdminActivations(tenants) {
-  const configurableModules = Object.keys(moduleDefinitions);
+  const configurableModules = Object.keys(moduleDefinitions).filter((code) => !removedModuleCodes.has(code));
   return `
     <section class="panel admin-section">
       <div class="section-title-row"><div><span class="eyebrow">Ativações</span><h2>Módulos por franquia</h2><p>Único local autorizado para liberar, bloquear ou suspender serviços.</p></div><span class="badge info">Negócios ativo por padrão</span></div>
@@ -2505,7 +2861,7 @@ function renderDashboard() {
     .filter(({ task }) => task.actualDate || task.deadline)
     .sort((a, b) => String(b.task.actualDate || b.task.deadline).localeCompare(String(a.task.actualDate || a.task.deadline)))
     .slice(0, 6);
-  const modules = ["commercial", "credentialing", "hr", "dp", "finance", "accounting", "marketing", "projects", "quality", "documentation", "legal", "administrative", "bi", "communication", "support"];
+  const modules = ["credentialing", "hr", "dp", "finance", "projects", "quality", "documentation", "communication", "support"];
 
   return `
     <section class="executive-hero">
@@ -2584,11 +2940,11 @@ function renderDashboard() {
         <section class="panel compact-executive-panel quick-access-panel">
           <div class="panel-title-row"><h2>Acesso rápido</h2></div>
           <div class="quick-access-grid">
-            <button data-open-view="new-unit" data-platform-only type="button"><i data-lucide="building-2"></i><span>Cadastrar unidade</span></button>
+            <button data-open-view="franchises" type="button"><i data-lucide="building-2"></i><span>Abrir franquias</span></button>
             <button data-open-view="implantation" type="button"><i data-lucide="list-checks"></i><span>Checklist</span></button>
             <button data-open-view="support" type="button"><i data-lucide="headset"></i><span>Abrir chamado</span></button>
             <button data-open-view="documentation" type="button"><i data-lucide="book-open-text"></i><span>Base de conhecimento</span></button>
-            <button data-open-view="bi" type="button"><i data-lucide="file-chart-column"></i><span>Relatório gerencial</span></button>
+            <button data-open-view="projects" type="button"><i data-lucide="folder-kanban"></i><span>Projetos da rede</span></button>
             <button data-open-view="communication" type="button"><i data-lucide="newspaper"></i><span>Notícias</span></button>
           </div>
         </section>
@@ -2601,7 +2957,7 @@ function renderDashboard() {
         <div class="recent-activity-list">${recent.map(({ unit, task }) => `<article><span class="activity-mark"><i data-lucide="${getStatus(task) === "Concluído" ? "circle-check-big" : "clock-3"}"></i></span><span><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(getStatus(task))}</small></span><time>${displayDate(task.actualDate || task.deadline)}</time></article>`).join("") || empty("Nenhuma atividade recente")}</div>
       </section>
       <section class="panel">
-        <div class="panel-title-row"><div><span class="eyebrow">Performance</span><h2>Ranking das unidades</h2></div><button class="text-button" data-open-view="bi" type="button">Comparar</button></div>
+        <div class="panel-title-row"><div><span class="eyebrow">Performance</span><h2>Ranking das unidades</h2></div><button class="text-button" data-open-view="franchises" type="button">Ver franquias</button></div>
         <div class="unit-ranking">${ranking.map((unit, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><b>${index + 1}</b><span><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></span><div><i style="--progress:${unitProgress(unit).percent}%"></i></div><em>${unitProgress(unit).percent}%</em></button>`).join("")}</div>
       </section>
     </div>
@@ -2989,9 +3345,12 @@ function renderFranchises() {
           <span class="small-label">Franquias</span>
           <h2>Painel de unidades</h2>
         </div>
-        <div class="badge-row">
-          <span class="badge info">${visibleUnits.length} visível(is)</span>
-          <span class="badge">${statusCounts["Em implantação"] || 0} em implantação</span>
+        <div class="franchise-panel-actions">
+          <div class="badge-row">
+            <span class="badge info">${visibleUnits.length} visível(is)</span>
+            <span class="badge">${statusCounts["Em implantação"] || 0} em implantação</span>
+          </div>
+          ${isPlatformAdmin() ? '<button class="primary-button add-franchise-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i> Adicionar Nova Franquia</button>' : ""}
         </div>
       </div>
       <div class="franchise-grid">
@@ -3858,6 +4217,17 @@ async function saveOperationalChanges(recordType, button) {
       }
 
       setLocalOperationalRecord({ ...item, hidden: false });
+      if (recordType === "purchase-details" && unitForId(item.unitId)?.purchases?.some((purchase) => purchase.id === item.recordId)) {
+        state.statusOverrides[item.recordId] = item.values.status || "Pendente";
+        setLocalItemStatus(item.recordId, item.values.status || "Pendente");
+        if (supabaseEnabled && state.auth?.token) {
+          await supabaseRpc("update_purchase_status", {
+            p_token: state.auth.token,
+            p_purchase_id: item.recordId,
+            p_status: item.values.status || "Pendente",
+          });
+        }
+      }
       if (supabaseEnabled && state.auth?.token) {
         await supabaseRpc("update_unit_operational_record", {
           p_token: state.auth.token,
@@ -3869,6 +4239,7 @@ async function saveOperationalChanges(recordType, button) {
       }
     }
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    writeStorage("franchiseStatusOverrides", state.statusOverrides);
     render();
   } catch (error) {
     button.disabled = false;
@@ -3941,6 +4312,8 @@ async function deleteOperationalRecord(button) {
     values: {},
     hidden: true,
   };
+  if ((item.recordType.startsWith("department:") || item.recordType === "purchase-details")
+    && !window.confirm("Excluir este registro e o histórico vinculado a ele?")) return;
 
   try {
     setLocalOperationalRecord(item);
@@ -4322,36 +4695,36 @@ function roadmapColumn(status, rows) {
 }
 
 function renderPurchases() {
-  const units = roadmapUnits();
-  const rows = units
-    .flatMap((unit) => (unit.purchases || []).map((item) => ({ unit, item })))
-    .filter(({ unit, item }) => matchesSearch(unit.name, item.item, item.notes));
+  const unit = selectedDepartmentUnit("projects");
+  if (!unit) return empty("Cadastre uma franquia para controlar as compras.");
+  const recordType = "purchase-details";
+  const baseRows = (unit.purchases || []).map((item) => applyOperationalRecord(unit.id, recordType, {
+    id: item.id,
+    recordId: item.id,
+    unitId: unit.id,
+    recordType,
+    title: item.item,
+    owner: "Operação",
+    deadline: "",
+    status: getStatus(item),
+    priority: "Média",
+    notes: item.notes || "",
+    attachment: "",
+  })).filter((item) => !item.hidden);
+  const baseIds = new Set(baseRows.map((item) => item.recordId));
+  const addedRows = departmentOperationalRecords(recordType, unit.id).filter((item) => !baseIds.has(item.recordId));
+  const rows = [...baseRows, ...addedRows].filter((item) => matchesSearch(item.title, item.owner, item.notes, item.status));
 
   return `
-    <section class="panel">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Unidade</th>
-              <th>Item</th>
-              <th>Status</th>
-              <th>Observações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows
-              .map(({ unit, item }) => `
-                <tr>
-                  <td class="nowrap">${escapeHtml(unit.city)}</td>
-                  <td>${escapeHtml(item.item)}</td>
-                  <td>${statusSelect(item)}</td>
-                  <td>${escapeHtml(item.notes || "")}</td>
-                </tr>
-              `)
-              .join("") || `<tr><td colspan="4">${empty("Nenhum item encontrado")}</td></tr>`}
-          </tbody>
-        </table>
+    <section class="panel department-section-main purchase-operation-panel">
+      <div class="section-workspace-head">
+        <div><span class="eyebrow">Projetos · ${escapeHtml(unit.city)}</span><h2>Compras e materiais</h2><p>Atualize prioridade, responsável, prazo, observações e anexos dos itens da unidade.</p></div>
+        <span class="module-live-indicator"><i data-lucide="database-zap"></i> Operação editável</span>
+      </div>
+      ${canManageTenant(unit.tenantId || unit.id) ? renderDepartmentRecordForm("projects", { label: "Compras e materiais" }, unit, recordType) : ""}
+      <div class="department-operational-list">
+        <div class="section-title-row"><div><span class="eyebrow">Itens da unidade</span><h2>Materiais e entregas</h2></div><span class="badge info">${rows.length} item(ns)</span></div>
+        ${renderEditableOperationalTable(recordType, rows, departmentOperationalColumns(), "Nenhum item de compra encontrado.")}
       </div>
     </section>
   `;
@@ -4415,9 +4788,17 @@ function renderAccreditation() {
 
 function renderNewUnit() {
   return `
+    <section class="page-intro-actions">
+      <div>
+        <span class="eyebrow">Cadastro oficial</span>
+        <h2>Adicionar Nova Franquia</h2>
+        <p>Crie a unidade com o mesmo template de implantação, compras e credenciamentos usado pela rede.</p>
+      </div>
+      <button class="ghost-button" data-open-view="franchises" type="button"><i data-lucide="arrow-left"></i> Voltar para franquias</button>
+    </section>
     <div class="grid two-col">
       <section class="panel">
-        <h2>Plano de abertura</h2>
+        <h2>Dados da nova franquia</h2>
         <div class="form-grid">
           <label>Cidade <input id="draft-city" placeholder="Ex.: Recife" /></label>
           <label>UF <input id="draft-state" maxlength="2" placeholder="PE" /></label>
@@ -4433,7 +4814,7 @@ function renderNewUnit() {
           </label>
         </div>
         <div class="form-actions">
-          <button class="primary-button" data-create-draft type="button">Criar plano</button>
+          <button class="primary-button" data-create-draft type="button">Adicionar franquia</button>
         </div>
       </section>
 
