@@ -10691,3 +10691,352 @@ select.empty-status:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* System readability pass */
+.app-shell {
+  font-size: 15px;
+}
+
+.app-shell .nav-section-label,
+.app-shell .eyebrow,
+.app-shell .hero-label {
+  font-size: 11px;
+}
+
+.app-shell .nav-item {
+  min-height: 42px;
+  font-size: 14px;
+}
+
+.app-shell .module-nav small {
+  max-width: 66px;
+  font-size: 10px;
+  padding: 3px 5px;
+}
+
+.app-shell .topbar-copy p,
+.executive-hero-copy p,
+.department-title p,
+.page-intro-actions p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.date-control strong,
+.date-control small {
+  font-size: 11px;
+}
+
+.date-control strong {
+  font-size: 12px;
+}
+
+.sidebar-support-card strong {
+  font-size: 12px;
+}
+
+.sidebar-support-card small,
+.sidebar-support-card button {
+  font-size: 11px;
+}
+
+.text-button,
+.network-overview > button {
+  font-size: 11px;
+}
+
+.overview-title {
+  font-size: 13px;
+}
+
+.overview-metrics small {
+  min-height: 26px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.overview-metrics em,
+.overview-metrics .ring-metric > i {
+  font-size: 9px;
+}
+
+.executive-kpi small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.executive-kpi em {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.platform-module-grid > button {
+  min-height: 100px;
+}
+
+.platform-module-grid strong {
+  font-size: 13px;
+}
+
+.platform-module-grid small {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.line-chart-legend,
+.line-months,
+.period-pill,
+.interface-status {
+  font-size: 10px;
+}
+
+.executive-donut small {
+  font-size: 11px;
+}
+
+.executive-donut-legend p {
+  font-size: 12px;
+}
+
+.compact-executive-panel h2 {
+  font-size: 14px;
+}
+
+.executive-alert-list > button,
+.agenda-list > button {
+  min-height: 64px;
+}
+
+.executive-alert-list strong,
+.agenda-list strong,
+.recent-activity-list strong,
+.unit-ranking strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.executive-alert-list small,
+.agenda-list small,
+.recent-activity-list small,
+.recent-activity-list time {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.executive-alert-list em,
+.agenda-date small,
+.unit-ranking small {
+  font-size: 10px;
+}
+
+.quick-access-grid button {
+  min-height: 46px;
+  font-size: 11px;
+}
+
+.recent-activity-list article,
+.unit-ranking button {
+  min-height: 56px;
+}
+
+.unit-ranking button > b {
+  font-size: 10px;
+}
+
+.unit-ranking em {
+  font-size: 11px;
+}
+
+.executive-purpose > strong {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.department-subnav button {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.department-metric small {
+  font-size: 11px;
+}
+
+.department-metric em,
+.chart-y-axis,
+.chart-bars small {
+  font-size: 10px;
+}
+
+.priority-list article {
+  min-height: 58px;
+}
+
+.priority-list strong,
+.department-module-grid strong,
+.department-side-panel strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.priority-list small,
+.priority-list em,
+.department-module-grid small,
+.department-side-panel small {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.department-module-grid button {
+  min-height: 100px;
+}
+
+.section-workspace-head p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.visual-table-head {
+  min-height: 38px;
+  font-size: 10px;
+}
+
+.visual-table-row {
+  min-height: 64px;
+  font-size: 12px;
+}
+
+.visual-table-row strong {
+  font-size: 12px;
+}
+
+.visual-table-row small {
+  font-size: 10px;
+}
+
+.department-empty-state strong {
+  font-size: 12px;
+}
+
+.department-empty-state span {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.app-breadcrumb {
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.notification-bar {
+  min-height: 58px;
+}
+
+.notification-bar-main small {
+  font-size: 10px;
+}
+
+.notification-bar-main strong {
+  font-size: 12px;
+}
+
+.notification-bar-main em {
+  font-size: 11px;
+}
+
+.notification-bar-all {
+  font-size: 12px;
+}
+
+.notification-panel-head .text-button {
+  font-size: 11px;
+}
+
+.notification-item-main {
+  min-height: 68px;
+}
+
+.notification-item-main strong {
+  font-size: 12px;
+}
+
+.notification-item-main small {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.notification-read-button,
+.notification-read-label {
+  font-size: 10px;
+}
+
+.department-unit-selector,
+.department-operation-fields label,
+.department-operation-fields .module-form-field {
+  font-size: 11px;
+}
+
+.department-unit-selector select,
+.department-operation-fields input,
+.department-operation-fields select,
+.department-operation-fields textarea,
+.department-operational-list .table-input,
+.department-operational-list .table-textarea,
+.department-operational-list .manual-status-select {
+  font-size: 12px;
+}
+
+.department-operation-actions > span,
+.module-access-path {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.app-shell input,
+.app-shell select,
+.app-shell textarea {
+  font-size: 12px;
+}
+
+.app-shell table {
+  font-size: 12px;
+}
+
+.app-shell thead th {
+  font-size: 10px;
+}
+
+.app-shell tbody td {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.app-shell .meta,
+.app-shell .unit-workspace-head small,
+.app-shell .summary-card span,
+.app-shell .franchise-meta-grid small,
+.app-shell .workspace-table td small,
+.app-shell .task-chip span,
+.app-shell .donut-chart span,
+.app-shell .donut-legend small,
+.app-shell .record-form-grid label,
+.app-shell .pendency-save-bar span {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.app-shell .badge,
+.app-shell .task-count,
+.app-shell .record-source,
+.app-shell .module-status-pill {
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .app-shell .nav-item {
+    font-size: 14px;
+  }
+
+  .overview-metrics small {
+    font-size: 11px;
+  }
+}
