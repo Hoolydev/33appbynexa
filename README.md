@@ -7,8 +7,8 @@ Aplicação local para acompanhar roadmaps de implantação, compras, credenciam
 A primeira fase do 33Doctor APP adiciona:
 
 - uma franquia por tenant, com suporte futuro a múltiplas unidades;
-- administradores globais e usuários vinculados a franquias;
-- perfis `franchise_admin`, `manager` e `user`;
+- equipe da franqueadora com cargos `admin`, `gestao` e `user`;
+- usuários vinculados a franquias com perfis `franchise_admin`, `manager` e `user`;
 - módulos de Negócios, RH, Departamento Pessoal, Contabilidade e Financeiro;
 - solicitação, ativação, suspensão e bloqueio de módulos;
 - Central Administrativa para criar usuários, definir acessos e liberar módulos;
@@ -43,6 +43,30 @@ Ela cria `module_records` e as RPCs multi-tenant de leitura, criação, edição
 - Contabilidade: documentos por competência, status, observações e anexos privados;
 - Financeiro: contas a pagar e receber, vencimentos, pagamentos e indicadores calculados.
 
+## Autenticação oficial
+
+A identidade e a senha de todos os usuários agora pertencem ao **Supabase Authentication**. A migration:
+
+```text
+supabase/migrations/202607300001_supabase_auth_identity.sql
+```
+
+faz a ligação entre:
+
+- `auth.users`: e-mail, senha, confirmação e sessões do Supabase;
+- `app_users`: nome, cargo e papel interno;
+- `tenant_memberships`: franquias que o usuário pode acessar.
+
+O token de renovação fica em cookie `HttpOnly`, com `SameSite=Strict`, e não no armazenamento JavaScript do navegador.
+
+Os cargos da franqueadora são:
+
+- `admin`: cria, gerencia e exclui usuários;
+- `gestao`: cria usuários, mas não pode excluir nem conceder o cargo `admin`;
+- `user`: utiliza a operação, sem administrar usuários.
+
+Os perfis das franquias permanecem `franchise_admin`, `manager` e `user`.
+
 ## Onde os dados ficam hoje
 
 Hoje o sistema é estático:
@@ -76,19 +100,38 @@ Elas criam:
 
 A migration `202606230002_seed_current_spreadsheets.sql` sobe os dados atuais das planilhas para o banco.
 
-## Criar usuário de login
+## Criar usuários
 
-O sistema não tem tela de cadastro. Crie usuários diretamente no SQL Editor do Supabase:
+Depois que o primeiro administrador estiver no Authentication, use:
 
-```sql
-insert into public.app_users (email, name, password_hash, role)
-values (
-  'admin@nexa.com.br',
-  'Admin Nexa',
-  extensions.crypt('troque-esta-senha', extensions.gen_salt('bf')),
-  'admin'
-);
+```text
+Configurações → Usuários → Criar usuário
 ```
+
+O formulário cria a identidade em `Authentication → Users`, confirma o e-mail automaticamente e, em seguida, grava perfil, cargo e vínculos nas tabelas públicas.
+
+Não insira linhas manualmente em `auth.users` nem crie novas senhas em `app_users`. Para criar ou migrar o primeiro administrador com a API oficial do Supabase:
+
+```bash
+export SUPABASE_URL='https://SEU-PROJETO.supabase.co'
+export SUPABASE_SERVICE_ROLE_KEY='SUA_SERVICE_ROLE'
+export AUTH_BOOTSTRAP_USERS='[
+  {
+    "email": "admin@nexa.com.br",
+    "password": "UMA-SENHA-TEMPORARIA-FORTE",
+    "name": "Admin Nexa",
+    "role": "admin",
+    "jobTitle": "Administrador"
+  }
+]'
+npm run bootstrap:auth-users
+```
+
+O mesmo comando aceita vários objetos no array. As senhas ficam somente na variável de ambiente do comando e não são gravadas no repositório.
+
+Usuários que já existiam em `Authentication → Users` antes da migration são vinculados automaticamente por e-mail. Quando não houver perfil anterior, eles entram sem franquia e sem cargo da franqueadora até que um administrador atribua o acesso correto.
+
+Contas legadas que existem somente em `app_users` são migradas automaticamente no primeiro login bem-sucedido. A senha antiga é validada uma última vez, a identidade é criada no Supabase Authentication e os próximos logins passam a usar exclusivamente o Auth.
 
 ## Configurar conexão Supabase
 
@@ -111,7 +154,7 @@ SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` é usada somente pelas funções em `/api/storage/*` para intermediar arquivos privados. Ela nunca é escrita em `supabase-config.js` nem enviada ao navegador.
+`SUPABASE_SERVICE_ROLE_KEY` é usada somente pelas funções server-side em `/api/*` para intermediar arquivos privados e administrar o Supabase Authentication. Ela nunca é escrita em `supabase-config.js` nem enviada ao navegador.
 
 Para usar a análise de candidatos com um modelo de IA, configure também no servidor:
 
@@ -122,19 +165,20 @@ OPENAI_SCORING_MODEL
 
 Sem essas duas variáveis, o recrutamento continua funcionando com uma classificação automática determinística baseada nos requisitos e nas competências informadas.
 
-O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. Não crie políticas públicas no bucket: a autenticação deste projeto usa `app_sessions`, e as rotas server-side validam o token e o tenant antes de gerar URLs temporárias.
+O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. Não crie políticas públicas no bucket. As rotas server-side verificam o usuário do Supabase e o tenant antes de administrar identidades; o acesso aos arquivos continua usando a sessão operacional vinculada ao mesmo usuário durante a transição das RPCs.
 
 ## Checklist depois das migrations
 
-1. Configure `SUPABASE_URL` e `SUPABASE_ANON_KEY` na Vercel.
-2. Configure `SUPABASE_SERVICE_ROLE_KEY` apenas na Vercel para o Storage privado.
-3. Faça um novo deploy para gerar `supabase-config.js` com URL e chave pública.
-4. Confirme que o administrador existe em `app_users`, está ativo e possui senha criada com `extensions.crypt`.
-5. Vincule cada usuário franqueado à sua franquia em `tenant_memberships`.
-6. Confira os módulos liberados por franquia em `tenant_modules`.
-7. Teste login, leitura do portal e uma alteração de implantação antes de liberar usuários finais.
+1. Aplique `202607300001_supabase_auth_identity.sql` depois das migrations anteriores.
+2. Configure `SUPABASE_URL` e `SUPABASE_ANON_KEY` na Vercel.
+3. Configure `SUPABASE_SERVICE_ROLE_KEY` apenas no servidor da Vercel.
+4. Rode `npm run bootstrap:auth-users` para migrar o primeiro administrador.
+5. Confirme que ele aparece em `Authentication → Users` e consegue entrar.
+6. Crie os demais usuários pela Central Administrativa do sistema.
+7. Confira os vínculos de franquia em `tenant_memberships`.
+8. Teste login, criação e exclusão com `admin`, criação sem exclusão com `gestao` e bloqueio administrativo com `user`.
 
-Rodar migrations não configura variáveis da Vercel nem cria automaticamente os vínculos dos novos usuários. As ativações continuam sendo controladas em Administração, e cada registro departamental é isolado pelo tenant selecionado.
+Rodar migrations não cria identidades no Authentication por si só. O primeiro administrador pode ser criado pelo bootstrap; os demais usuários legados também podem ser convertidos automaticamente ao entrarem com a senha atual.
 
 ## Nova unidade
 

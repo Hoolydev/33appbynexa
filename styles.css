@@ -3938,6 +3938,18 @@ select.empty-status:focus {
   min-width: min(100%, 460px);
 }
 
+.admin-user-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-user-actions .link-button.danger {
+  min-height: 34px;
+  padding: 7px 12px;
+}
+
 @media (max-width: 1320px) {
   .app-shell .search-box {
     width: min(25vw, 280px);

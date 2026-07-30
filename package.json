@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "python3 -m http.server 4173",
     "build": "node build-config.js && node --check app.js",
+    "bootstrap:auth-users": "node scripts/bootstrap-auth-users.js",
     "start": "python3 -m http.server 4173"
   },
   "dependencies": {

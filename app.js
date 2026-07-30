@@ -224,6 +224,9 @@ app.addEventListener("change", async (event) => {
   if (target.matches("[data-admin-module-status]")) {
     adminSetModuleStatus(target);
   }
+  if (target.matches("[data-user-scope]")) {
+    updateAdminUserScope(target.closest("[data-admin-user-form]"));
+  }
   if (target.matches("[data-department-unit]")) {
     state.departmentUnitIds[target.dataset.departmentUnit] = target.value;
     const unit = unitForId(target.value);
@@ -378,6 +381,9 @@ app.addEventListener("click", (event) => {
   const saveUserAccessButton = event.target.closest("[data-save-user-access]");
   if (saveUserAccessButton) adminSaveUserAccess(saveUserAccessButton);
 
+  const deletePortalUserButton = event.target.closest("[data-delete-portal-user]");
+  if (deletePortalUserButton) adminDeletePortalUser(deletePortalUserButton);
+
   const approveModuleButton = event.target.closest("[data-approve-module]");
   if (approveModuleButton) adminApproveModuleRequest(approveModuleButton);
 
@@ -405,7 +411,13 @@ async function init() {
     && new URLSearchParams(window.location.search).get("preview") === "system";
 
   if (isLocalSystemPreview) {
-    state.accessContext = { platformAdmin: true, memberships: [] };
+    state.accessContext = {
+      platformAdmin: true,
+      franchisorRole: "admin",
+      canCreateUsers: true,
+      canDeleteUsers: true,
+      memberships: [],
+    };
     state.profile = { name: "Administrador 33Doctor", photo: "" };
     const previewTenants = data.units.map((unit) => ({
       id: unit.tenantId || unit.id,
@@ -432,10 +444,16 @@ async function init() {
     await loadSupabaseData();
     showApp();
   } catch (error) {
-    console.error(error);
-    state.auth = null;
-    writeStorage("appSession", null);
-    showLogin("Sessão expirada. Entre novamente.");
+    try {
+      await refreshAuthSession();
+      await loadSupabaseData();
+      showApp();
+    } catch (refreshError) {
+      console.error(refreshError);
+      state.auth = null;
+      writeStorage("appSession", null);
+      showLogin("Sessão expirada. Entre novamente.");
+    }
   }
 }
 
@@ -589,7 +607,7 @@ async function login(form) {
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(payload?.error || "Não foi possível entrar.");
     state.auth = payload.session;
-    writeStorage("appSession", payload.session);
+    writeStorage("appSession", persistedAuthSession(payload.session));
     await loadSupabaseData();
     showApp();
   } catch (error) {
@@ -598,11 +616,33 @@ async function login(form) {
 }
 
 async function logout() {
-  if (state.auth?.token && supabaseEnabled) {
+  if (state.auth?.user && !state.auth?.accessToken) {
+    try {
+      await refreshAuthSession();
+    } catch {
+      // O logout local continua mesmo quando a sessão remota já expirou.
+    }
+  }
+  if (state.auth?.user) {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(state.auth.accessToken
+            ? { Authorization: `Bearer ${state.auth.accessToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ token: state.auth.token }),
+      });
+    } catch {
+      // Session cleanup is best-effort; local logout still proceeds.
+    }
+  } else if (state.auth?.token && supabaseEnabled) {
     try {
       await supabaseRpc("logout_app_user", { p_token: state.auth.token });
     } catch {
-      // Session cleanup is best-effort; local logout still proceeds.
+      // Compatibilidade com sessões legadas.
     }
   }
   state.auth = null;
@@ -619,9 +659,13 @@ async function loadSupabaseData() {
     payload = await supabaseRpc("get_app_data", { p_token: state.auth.token });
   }
   data = normalizeLoadedData(payload);
-  state.accessContext = payload.accessContext || {
-    platformAdmin: ["admin", "platform_admin"].includes(String(state.auth?.user?.role || "").toLowerCase()),
-    memberships: [],
+  const sessionRole = sessionFranchisorRole();
+  state.accessContext = {
+    ...(payload.accessContext || { memberships: [] }),
+    platformAdmin: Boolean(payload.accessContext?.platformAdmin || sessionRole),
+    franchisorRole: sessionRole,
+    canCreateUsers: ["admin", "gestao"].includes(sessionRole),
+    canDeleteUsers: sessionRole === "admin",
   };
   state.tenantModules = payload.tenantModules || fallbackTenantModules(payload.units || []);
   state.adminData = payload.admin || null;
@@ -680,6 +724,60 @@ async function supabaseRpc(functionName, body) {
   if (!response.ok) {
     throw new Error(payload?.message || payload?.hint || "Erro ao comunicar com Supabase.");
   }
+  return payload;
+}
+
+async function refreshAuthSession() {
+  const response = await fetch("/api/auth/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.session) {
+    throw new Error(payload?.error || "Sessão expirada. Entre novamente.");
+  }
+  state.auth = payload.session;
+  writeStorage("appSession", persistedAuthSession(state.auth));
+  return state.auth;
+}
+
+function persistedAuthSession(session) {
+  if (!session) return null;
+  const {
+    accessToken,
+    authExpiresAt,
+    refreshToken,
+    ...persisted
+  } = session;
+  return persisted;
+}
+
+async function ensureAuthAccessToken() {
+  if (!state.auth?.accessToken) {
+    await refreshAuthSession();
+  }
+  const expiresAt = Number(state.auth.authExpiresAt || 0) * 1000;
+  if (expiresAt && expiresAt <= Date.now() + 60_000) await refreshAuthSession();
+  return state.auth.accessToken;
+}
+
+async function authenticatedApiRequest(endpoint, options = {}, retry = true) {
+  const accessToken = await ensureAuthAccessToken();
+  const response = await fetch(endpoint, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (response.status === 401 && retry) {
+    await refreshAuthSession();
+    return authenticatedApiRequest(endpoint, options, false);
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "Não foi possível concluir a operação.");
   return payload;
 }
 
@@ -1780,6 +1878,24 @@ function isPlatformAdmin() {
   return Boolean(state.accessContext?.platformAdmin);
 }
 
+function sessionFranchisorRole() {
+  const explicitRole = String(state.auth?.user?.franchisorRole || "").toLowerCase();
+  if (["admin", "gestao", "user"].includes(explicitRole)) return explicitRole;
+  const role = String(state.auth?.user?.role || "").toLowerCase();
+  if (["admin", "platform_admin"].includes(role)) return "admin";
+  if (role === "platform_gestao") return "gestao";
+  if (role === "platform_user") return "user";
+  return "";
+}
+
+function canCreatePlatformUsers() {
+  return Boolean(state.accessContext?.canCreateUsers);
+}
+
+function canDeletePlatformUsers() {
+  return Boolean(state.accessContext?.canDeleteUsers);
+}
+
 function canManageTenant(tenantId = currentTenantId()) {
   if (isPlatformAdmin()) return true;
   const membership = (state.accessContext?.memberships || []).find((item) => item.tenantId === tenantId);
@@ -1837,7 +1953,7 @@ function moduleStatusLabel(status) {
 
 function updateNavigationAccess() {
   document.querySelectorAll("[data-platform-only]").forEach((element) => {
-    element.hidden = !isPlatformAdmin();
+    element.hidden = !canCreatePlatformUsers();
   });
   document.querySelectorAll("[data-module-nav]").forEach((button) => {
     const status = isPlatformAdmin() ? "admin" : tenantModuleStatus(button.dataset.moduleNav);
@@ -2317,23 +2433,25 @@ function isCurrentMonth(value) {
 }
 
 function renderAdminCenter() {
-  if (!isPlatformAdmin()) return empty("Esta área é exclusiva da administração da plataforma.");
+  if (!canCreatePlatformUsers()) return empty("Seu perfil não possui acesso à gestão de usuários.");
   const admin = state.adminData || { tenants: [], users: [], requests: [] };
   const requests = admin.requests || [];
   const pendingRequests = requests.filter((request) => request.status === "pending");
   const activeModules = state.tenantModules.filter((item) => item.status === "active").length;
+  const isAdmin = canDeletePlatformUsers();
+  if (!isAdmin && state.adminTab !== "users") state.adminTab = "users";
 
   return `
     <section class="admin-hero">
-      <div><span class="eyebrow">Controle da rede</span><h2>Central Administrativa</h2><p>Usuários, franquias, acessos e módulos em um único painel.</p></div>
-      <span class="admin-scope-pill">Acesso global</span>
+      <div><span class="eyebrow">Controle da rede</span><h2>Central Administrativa</h2><p>Usuários da franqueadora e das unidades, com identidades oficiais no Supabase Authentication.</p></div>
+      <span class="admin-scope-pill">${isAdmin ? "Administrador" : "Gestão"}</span>
     </section>
     <section class="toolbar-panel admin-toolbar">
       <div><span class="small-label">Gestão da plataforma</span><strong>${escapeHtml(adminTabLabel(state.adminTab))}</strong></div>
       <div class="view-tabs admin-tabs">
-        ${adminTabButton("overview", "Visão geral")}
-        ${adminTabButton("requests", `Solicitações (${pendingRequests.length})`)}
-        ${adminTabButton("activations", "Ativações")}
+        ${isAdmin ? adminTabButton("overview", "Visão geral") : ""}
+        ${isAdmin ? adminTabButton("requests", `Solicitações (${pendingRequests.length})`) : ""}
+        ${isAdmin ? adminTabButton("activations", "Ativações") : ""}
         ${adminTabButton("users", "Usuários")}
       </div>
     </section>
@@ -2395,17 +2513,23 @@ function renderAdminRequests(requests) {
 }
 
 function renderAdminUserForm(tenants) {
+  const franchisorRoleOptions = canDeletePlatformUsers()
+    ? `<option value="admin">Administrador</option><option value="gestao">Gestão</option><option value="user">Usuário</option>`
+    : `<option value="gestao">Gestão</option><option value="user">Usuário</option>`;
   return `
     <section class="panel admin-section" data-admin-user-form>
-      <span class="eyebrow">Novo acesso</span><h2>Criar usuário da franquia</h2>
+      <span class="eyebrow">Novo acesso</span><h2>Criar usuário</h2>
       <div class="admin-form-grid">
+        <label>Vínculo<select name="scope" data-user-scope><option value="franchisor">Franqueadora 33Doctor</option><option value="tenant">Unidade franqueada</option></select></label>
         <label>Nome<input name="name" placeholder="Nome completo" /></label>
         <label>E-mail<input name="email" type="email" placeholder="usuario@empresa.com" /></label>
         <label>Senha temporária<input name="password" type="password" minlength="8" placeholder="Mínimo de 8 caracteres" /></label>
-        <label>Franquia<select name="tenantId"><option value="">Selecione</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select></label>
-        <label>Perfil<select name="role"><option value="franchise_admin">Administrador da franquia</option><option value="manager">Gerente</option><option value="user">Usuário</option></select></label>
+        <label>Cargo<input name="jobTitle" placeholder="Ex.: Gerente de Operações" /></label>
+        <label data-user-tenant-field hidden>Franquia<select name="tenantId"><option value="">Selecione</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select></label>
+        <label>Perfil<select name="role" data-user-role>${franchisorRoleOptions}</select></label>
       </div>
-      <div class="permission-banner user-confirmation-note">O usuário será criado ativo e confirmado automaticamente, sem etapa de confirmação por e-mail.</div>
+      <div class="permission-banner user-confirmation-note">A identidade será criada e confirmada automaticamente no Supabase Authentication.</div>
+      ${state.auth?.accessToken ? "" : `<div class="permission-banner warning">Sua conta atual é legada. Migre-a para o Authentication antes de criar novos usuários.</div>`}
       <div class="form-actions"><button class="primary-button" data-create-portal-user type="button">Criar usuário</button></div>
     </section>
   `;
@@ -2415,13 +2539,51 @@ function renderAdminUsers(users, tenants) {
   return `
     <section class="panel admin-section admin-user-list-section">
       <span class="eyebrow">Equipe e acessos</span><h2>Usuários cadastrados</h2>
-      <div class="admin-user-list">${users.map((user) => `<article data-admin-access-row data-user-id="${escapeHtml(user.id)}"><div class="admin-user-copy"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><div class="badge-row">${user.memberships.map((membership) => `<span class="badge info">${escapeHtml(membership.tenantName)} · ${escapeHtml(roleLabel(membership.role))}</span>`).join("") || `<span class="badge ${["admin", "platform_admin"].includes(user.platformRole) ? "done" : "pending"}">${["admin", "platform_admin"].includes(user.platformRole) ? "Administrador global" : "Sem franquia"}</span>`}</div></div>${["admin", "platform_admin"].includes(user.platformRole) ? "" : `<div class="admin-access-controls"><select data-access-tenant><option value="">Franquia</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select><select data-access-role><option value="franchise_admin">Administrador</option><option value="manager">Gerente</option><option value="user">Usuário</option></select><select data-access-active><option value="true">Acesso ativo</option><option value="false">Suspender acesso</option></select><button class="ghost-button" data-save-user-access type="button">Salvar acesso</button></div>`}</article>`).join("") || empty("Nenhum usuário cadastrado")}</div>
+      <div class="admin-user-list">${users.map((user) => {
+        const isFranchisor = ["admin", "platform_admin", "platform_gestao", "platform_user"].includes(String(user.platformRole || "").toLowerCase());
+        const isCurrentUser = user.id === state.auth?.user?.id;
+        const platformLabel = platformRoleLabel(user.platformRole);
+        const accessBadges = (user.memberships || []).map((membership) => `<span class="badge info">${escapeHtml(membership.tenantName)} · ${escapeHtml(roleLabel(membership.role))}</span>`).join("")
+          || `<span class="badge ${isFranchisor ? "done" : "pending"}">${escapeHtml(isFranchisor ? platformLabel : "Sem franquia")}</span>`;
+        const authBadge = `<span class="badge ${user.authManaged ? "done" : "review"}">${user.authManaged ? "Authentication ativo" : "Migração Auth pendente"}</span>`;
+        const badges = `${accessBadges}${authBadge}`;
+        const accessControls = isFranchisor ? "" : `<div class="admin-access-controls"><select data-access-tenant><option value="">Franquia</option>${tenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}">${escapeHtml(tenant.name)}</option>`).join("")}</select><select data-access-role><option value="franchise_admin">Administrador</option><option value="manager">Gerente</option><option value="user">Usuário</option></select><select data-access-active><option value="true">Acesso ativo</option><option value="false">Suspender acesso</option></select><button class="ghost-button" data-save-user-access type="button">Salvar acesso</button></div>`;
+        const deleteButton = canDeletePlatformUsers() && !isCurrentUser
+          ? `<button class="link-button danger" data-delete-portal-user type="button">Excluir</button>`
+          : "";
+        return `<article data-admin-access-row data-user-id="${escapeHtml(user.id)}"><div class="admin-user-copy"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><div class="badge-row">${badges}</div></div><div class="admin-user-actions">${accessControls}${deleteButton}</div></article>`;
+      }).join("") || empty("Nenhum usuário cadastrado")}</div>
     </section>
   `;
 }
 
 function roleLabel(role) {
   return { franchise_admin: "Administrador", manager: "Gerente", user: "Usuário" }[role] || role;
+}
+
+function platformRoleLabel(role) {
+  return {
+    admin: "Administrador da franqueadora",
+    platform_admin: "Administrador da franqueadora",
+    platform_gestao: "Gestão da franqueadora",
+    platform_user: "Usuário da franqueadora",
+  }[String(role || "").toLowerCase()] || "Franqueadora";
+}
+
+function updateAdminUserScope(form) {
+  if (!form) return;
+  const scope = form.querySelector("[data-user-scope]")?.value || "franchisor";
+  const tenantField = form.querySelector("[data-user-tenant-field]");
+  const roleSelect = form.querySelector("[data-user-role]");
+  if (tenantField) tenantField.hidden = scope !== "tenant";
+  if (!roleSelect) return;
+  if (scope === "tenant") {
+    roleSelect.innerHTML = `<option value="franchise_admin">Administrador da franquia</option><option value="manager">Gerente</option><option value="user">Usuário</option>`;
+  } else {
+    roleSelect.innerHTML = canDeletePlatformUsers()
+      ? `<option value="admin">Administrador</option><option value="gestao">Gestão</option><option value="user">Usuário</option>`
+      : `<option value="gestao">Gestão</option><option value="user">Usuário</option>`;
+  }
 }
 
 async function adminSetModuleStatus(select) {
@@ -2461,21 +2623,47 @@ async function adminApproveModuleRequest(button) {
 async function adminCreatePortalUser(button) {
   const form = button.closest("[data-admin-user-form]");
   const values = Object.fromEntries([...form.querySelectorAll("input, select")].map((field) => [field.name, field.value.trim()]));
-  if (!values.name || !values.email || !values.password || !values.tenantId) {
-    alert("Preencha nome, e-mail, senha e franquia.");
+  if (!values.name || !values.email || !values.password || (values.scope === "tenant" && !values.tenantId)) {
+    alert(values.scope === "tenant" ? "Preencha nome, e-mail, senha e franquia." : "Preencha nome, e-mail e senha.");
     return;
   }
   button.disabled = true;
   try {
-    await supabaseRpc("admin_create_portal_user", {
-      p_token: state.auth.token, p_email: values.email, p_name: values.name, p_password: values.password,
-      p_tenant_id: values.tenantId, p_role: values.role,
+    await authenticatedApiRequest("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: values.scope,
+        email: values.email,
+        name: values.name,
+        password: values.password,
+        jobTitle: values.jobTitle,
+        tenantId: values.scope === "tenant" ? values.tenantId : null,
+        role: values.role,
+      }),
     });
     await loadSupabaseData();
     render();
   } catch (error) {
     button.disabled = false;
     alert(error.message || "Não foi possível criar o usuário.");
+  }
+}
+
+async function adminDeletePortalUser(button) {
+  const row = button.closest("[data-admin-access-row]");
+  const name = row?.querySelector(".admin-user-copy strong")?.textContent || "este usuário";
+  if (!row || !window.confirm(`Excluir ${name} do sistema e do Supabase Authentication?`)) return;
+  button.disabled = true;
+  try {
+    await authenticatedApiRequest("/api/admin/users", {
+      method: "DELETE",
+      body: JSON.stringify({ userId: row.dataset.userId }),
+    });
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "Não foi possível excluir o usuário.");
   }
 }
 

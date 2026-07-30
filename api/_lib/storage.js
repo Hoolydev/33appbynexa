@@ -25,6 +25,15 @@ function getAdminClient() {
   });
 }
 
+function getAuthClient() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new Error("Supabase Authentication não configurado no servidor.");
+  return createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  });
+}
+
 function requirePost(request, response, options = {}) {
   return enforceRequest(request, response, {
     methods: ["POST"],
@@ -92,6 +101,7 @@ module.exports = {
   assertFile,
   authorize,
   getAdminClient,
+  getAuthClient,
   handleError,
   json,
   requestBody,
