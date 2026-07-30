@@ -3059,12 +3059,20 @@ function renderDashboard() {
         <p>Acompanhe em tempo real o desempenho da rede e tome decisões estratégicas com inteligência.</p>
       </div>
       <div class="network-map" aria-label="Mapa das franquias 33Doctor no Brasil">
-        <div class="brazil-shape"></div>
-        <div class="map-routes"><i></i><i></i><i></i></div>
-        ${units.map((unit, index) => {
-          const point = mapPointForUnit(unit, index);
-          return `<button class="map-point" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" aria-label="${escapeHtml(unit.city)}"><span></span><small>${escapeHtml(unit.city)}</small></button>`;
-        }).join("")}
+        <div class="network-map-canvas">
+          <img class="brazil-state-map" src="./assets/brazil-states.svg" alt="" />
+          <svg class="map-routes" viewBox="0 0 613 639" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <path d="M219 138 Q315 72 401 109"></path>
+            <path d="M401 109 Q430 132 415 177"></path>
+            <path d="M415 177 Q340 224 280 342"></path>
+            <path d="M280 342 Q350 408 424 473"></path>
+            <path d="M424 473 Q455 448 486 433"></path>
+          </svg>
+          ${units.map((unit, index) => {
+            const point = mapPointForUnit(unit, index);
+            return `<button class="map-point" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" aria-label="Abrir unidade ${escapeHtml(unit.city)}"><span></span><small>${escapeHtml(unit.city)}</small></button>`;
+          }).join("")}
+        </div>
       </div>
       <div class="network-overview">
         <div class="overview-title"><span>Panorama geral da rede</span><i data-lucide="globe-2"></i></div>
@@ -3161,14 +3169,14 @@ function executiveKpi(label, value, detail, icon, tone, progress) {
 function mapPointForUnit(unit, index) {
   const city = normalizeText(unit.city);
   const points = {
-    ananindeua: { x: 66, y: 23 },
-    cotia: { x: 62, y: 72 },
-    cuiaba: { x: 45, y: 57 },
-    imperatriz: { x: 61, y: 39 },
-    manaus: { x: 30, y: 27 },
-    uba: { x: 68, y: 66 },
+    ananindeua: { x: 65.4, y: 17 },
+    cotia: { x: 69.1, y: 74 },
+    cuiaba: { x: 45.6, y: 53.5 },
+    imperatriz: { x: 67.6, y: 27.7 },
+    manaus: { x: 35.7, y: 21.5 },
+    uba: { x: 79.2, y: 67.7 },
   };
-  return points[city] || { x: 35 + (index * 9) % 42, y: 28 + (index * 13) % 50 };
+  return points[city] || { x: 38 + (index * 7) % 34, y: 30 + (index * 9) % 42 };
 }
 
 function executiveLineChart(avg) {
