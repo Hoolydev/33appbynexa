@@ -6,6 +6,13 @@ alter table public.app_users
   add column if not exists franchisor_role text,
   add column if not exists job_title text;
 
+update public.app_users
+set job_title = ''
+where job_title is null;
+
+alter table public.app_users
+  alter column job_title set default '';
+
 do $$
 begin
   if not exists (
@@ -89,7 +96,7 @@ begin
       v_name,
       'tenant_user',
       true,
-      nullif(trim(new.raw_user_meta_data ->> 'job_title'), '')
+      coalesce(nullif(trim(new.raw_user_meta_data ->> 'job_title'), ''), '')
     );
   end if;
 
@@ -147,7 +154,7 @@ begin
         v_name,
         'tenant_user',
         true,
-        nullif(trim(v_auth_user.raw_user_meta_data ->> 'job_title'), '')
+        coalesce(nullif(trim(v_auth_user.raw_user_meta_data ->> 'job_title'), ''), '')
       );
     end if;
   end loop;
@@ -457,7 +464,7 @@ begin
       name = trim(p_name),
       role = p_role,
       franchisor_role = p_franchisor_role,
-      job_title = nullif(trim(coalesce(p_job_title, '')), ''),
+      job_title = trim(coalesce(p_job_title, '')),
       active = true,
       updated_at = now()
   where lower(email) = lower(trim(p_email))
@@ -485,7 +492,7 @@ begin
       trim(p_name),
       p_role,
       p_franchisor_role,
-      nullif(trim(coalesce(p_job_title, '')), ''),
+      trim(coalesce(p_job_title, '')),
       true
     )
     returning id into v_user_id;
