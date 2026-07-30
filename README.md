@@ -133,6 +133,14 @@ Usuários que já existiam em `Authentication → Users` antes da migration são
 
 Contas legadas que existem somente em `app_users` são migradas automaticamente no primeiro login bem-sucedido. A senha antiga é validada uma última vez, a identidade é criada no Supabase Authentication e os próximos logins passam a usar exclusivamente o Auth.
 
+Para antecipar essa migração e fazer todas as contas legadas aparecerem imediatamente em `Authentication → Users`, rode uma vez com a `service_role`:
+
+```bash
+npm run migrate:legacy-auth-users
+```
+
+O comando envia ao Auth somente os hashes bcrypt já existentes, sem conhecer ou redefinir as senhas. Usuários já presentes no Authentication são apenas vinculados ao perfil público correspondente.
+
 ## Configurar conexão Supabase
 
 Edite `supabase-config.js`:
@@ -172,7 +180,7 @@ O bucket aceita PDF, JPG, PNG, WebP, CSV, XLS/XLSX e DOC/DOCX com até 25 MB. N�
 1. Aplique `202607300001_supabase_auth_identity.sql` depois das migrations anteriores.
 2. Configure `SUPABASE_URL` e `SUPABASE_ANON_KEY` na Vercel.
 3. Configure `SUPABASE_SERVICE_ROLE_KEY` apenas no servidor da Vercel.
-4. Rode `npm run bootstrap:auth-users` para migrar o primeiro administrador.
+4. Rode `npm run bootstrap:auth-users` para criar o primeiro administrador, ou `npm run migrate:legacy-auth-users` para preservar e migrar todas as contas antigas.
 5. Confirme que ele aparece em `Authentication → Users` e consegue entrar.
 6. Crie os demais usuários pela Central Administrativa do sistema.
 7. Confira os vínculos de franquia em `tenant_memberships`.
