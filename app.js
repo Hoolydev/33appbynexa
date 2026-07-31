@@ -407,8 +407,11 @@ async function init() {
     return;
   }
 
-  const isLocalSystemPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname)
-    && new URLSearchParams(window.location.search).get("preview") === "system";
+  const localPreviewRole = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? new URLSearchParams(window.location.search).get("preview")
+    : "";
+  const isLocalSystemPreview = localPreviewRole === "system";
+  const isLocalTenantPreview = localPreviewRole === "tenant";
 
   if (isLocalSystemPreview) {
     state.accessContext = {
@@ -431,6 +434,29 @@ async function init() {
       moduleCode,
       status: "active",
     })));
+    showApp();
+    return;
+  }
+
+  if (isLocalTenantPreview) {
+    const unit = data.units[0];
+    const tenantId = unit?.tenantId || unit?.id || "";
+    state.accessContext = {
+      platformAdmin: false,
+      canCreateUsers: false,
+      canDeleteUsers: false,
+      memberships: tenantId ? [{
+        tenantId,
+        tenantName: unit.name,
+        tenantCode: unit.id,
+        role: "user",
+        permissions: [],
+      }] : [],
+    };
+    state.auth = { user: { role: "tenant_user", name: "Usuário da Franquia" } };
+    state.profile = { name: "Usuário da Franquia", photo: "" };
+    state.selectedTenantId = tenantId;
+    state.tenantModules = tenantId ? [{ tenantId, moduleCode: "business", status: "active" }] : [];
     showApp();
     return;
   }
@@ -659,6 +685,7 @@ async function loadSupabaseData() {
     payload = await supabaseRpc("get_app_data", { p_token: state.auth.token });
   }
   data = normalizeLoadedData(payload);
+  hydrateUnitRecordsFromOperationalData(data.operationalRecords);
   const sessionRole = sessionFranchisorRole();
   state.accessContext = {
     ...(payload.accessContext || { memberships: [] }),
@@ -705,6 +732,37 @@ function normalizeLoadedData(payload) {
       ...(payload.summary || {}),
     },
   };
+}
+
+const persistedUnitRecordTypes = new Set(["accreditations", "documents", "trainings", "meetings", "pendencies"]);
+
+function hydrateUnitRecordsFromOperationalData(operationalRecords = []) {
+  const hydrated = {};
+  operationalRecords
+    .filter((record) => persistedUnitRecordTypes.has(record.recordType))
+    .filter((record) => String(record.recordId || "").startsWith(`${record.recordType}-`))
+    .forEach((record) => {
+      hydrated[record.unitId] ||= {};
+      hydrated[record.unitId][record.recordType] ||= [];
+      if (record.hidden) return;
+      hydrated[record.unitId][record.recordType].push({
+        ...record,
+        id: record.recordId,
+      });
+    });
+
+  Object.entries(hydrated).forEach(([unitId, recordTypes]) => {
+    state.unitRecords[unitId] ||= {};
+    Object.entries(recordTypes).forEach(([recordType, serverRecords]) => {
+      const localRecords = state.unitRecords[unitId][recordType] || [];
+      const serverIds = new Set(serverRecords.map((record) => record.id));
+      state.unitRecords[unitId][recordType] = [
+        ...serverRecords,
+        ...localRecords.filter((record) => !serverIds.has(record.id)),
+      ];
+    });
+  });
+  writeStorage("franchiseUnitRecords", state.unitRecords);
 }
 
 async function supabaseRpc(functionName, body) {
@@ -893,6 +951,7 @@ async function handleFileUpload(input) {
     if (openButton) openButton.hidden = !uploaded.id;
     const removeButton = control.querySelector("[data-remove-attachment]");
     if (removeButton) removeButton.hidden = false;
+    showOperationToast(`Arquivo ${uploaded.name} anexado. Salve a etapa para confirmar a alteração.`);
   } catch (error) {
     hidden.value = "";
     control.classList.remove("has-file");
@@ -1462,6 +1521,8 @@ function renderDepartmentHub(departmentCode) {
   const activeId = state.departmentSections[departmentCode] || department.sections[0].id;
   const activeSection = department.sections.find((section) => section.id === activeId) || department.sections[0];
   const operationalContent = renderDepartmentOperationalContent(departmentCode, activeSection.id);
+  const selectedUnit = selectedDepartmentUnit(departmentCode);
+  const editable = selectedUnit ? canEditTenant(selectedUnit.tenantId || selectedUnit.id, departmentModuleCode(departmentCode)) : false;
 
   return `
     <section class="department-header">
@@ -1475,7 +1536,7 @@ function renderDepartmentHub(departmentCode) {
       </div>
       <div class="department-header-actions">
         ${departmentCode === "settings" ? "" : departmentUnitSelector(departmentCode)}
-        <span class="interface-status live"><i data-lucide="database-zap"></i> Operação editável</span>
+        <span class="interface-status ${editable ? "live" : "locked"}"><i data-lucide="${editable ? "database-zap" : "lock-keyhole"}"></i> ${editable ? "Operação editável" : "Somente visualização"}</span>
       </div>
     </section>
 
@@ -1572,7 +1633,7 @@ function renderDepartmentVisualWorkspace(departmentCode, department, activeSecti
             <span class="module-live-indicator"><i data-lucide="save"></i> Dados salvos por unidade</span>
           </div>
           ${unit ? `
-            ${canManageTenant(unit.tenantId || unit.id) ? renderDepartmentRecordForm(departmentCode, activeSection, unit, recordType) : ""}
+            ${canEditTenant(unit.tenantId || unit.id, departmentModuleCode(departmentCode)) ? renderDepartmentRecordForm(departmentCode, activeSection, unit, recordType) : ""}
             <div class="department-operational-list">
               <div class="section-title-row">
                 <div><span class="eyebrow">Histórico da unidade</span><h2>Registros de ${escapeHtml(activeSection.label)}</h2></div>
@@ -1622,8 +1683,19 @@ function departmentOperationalRecordType(departmentCode, sectionId) {
   return `department:${departmentCode}:${sectionId}`;
 }
 
+function allOperationalRecords() {
+  return Object.values({
+    ...(data.operationalRecordsByKey || {}),
+    ...(state.operationalOverrides || {}),
+  });
+}
+
+function departmentModuleCode(departmentCode) {
+  return ["hr", "dp", "finance", "accounting"].includes(departmentCode) ? departmentCode : "business";
+}
+
 function departmentOperationalRecords(recordType, unitId) {
-  return Object.values(data.operationalRecordsByKey || {})
+  return allOperationalRecords()
     .filter((record) => record.recordType === recordType && record.unitId === unitId && !record.hidden)
     .map((record) => ({
       ...record,
@@ -1687,18 +1759,11 @@ async function saveDepartmentRecord(button) {
   button.disabled = true;
   button.textContent = "Salvando...";
   try {
+    await persistUnitOperationalRecord(item.unitId, item.recordType, item.recordId, item.values);
     setLocalOperationalRecord(item);
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
-    if (supabaseEnabled && state.auth?.token) {
-      await supabaseRpc("update_unit_operational_record", {
-        p_token: state.auth.token,
-        p_unit_id: item.unitId,
-        p_record_type: item.recordType,
-        p_record_id: item.recordId,
-        p_payload: item.values,
-      });
-    }
     render();
+    showOperationToast("Registro salvo com sucesso.");
   } catch (error) {
     button.disabled = false;
     button.textContent = originalText;
@@ -1717,7 +1782,7 @@ function departmentMetricData(departmentCode) {
   const accreditation = units.flatMap((unit) => accreditationForUnit(unit));
   const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
   const purchases = units.flatMap((unit) => unit.purchases || []);
-  const genericDepartmentRecords = Object.values(data.operationalRecordsByKey || {})
+  const genericDepartmentRecords = allOperationalRecords()
     .filter((record) => record.recordType?.startsWith(`department:${departmentCode}:`) && !record.hidden);
   const records = moduleDefinitions[departmentCode] ? [...recordsFor(departmentCode), ...genericDepartmentRecords] : genericDepartmentRecords;
   const financeRecords = departmentCode === "finance" ? recordsFor("finance", "transaction") : [];
@@ -1819,7 +1884,7 @@ function departmentQueueData(departmentCode) {
       tone: ["Concluído", "Aprovado", "Ativo"].includes(record.status) ? "success" : "warning",
     }));
   }
-  return Object.values(data.operationalRecordsByKey || {})
+  return allOperationalRecords()
     .filter((record) => record.recordType?.startsWith(`department:${departmentCode}:`) && !record.hidden)
     .slice(0, 8)
     .map((record) => ({
@@ -1896,16 +1961,41 @@ function canDeletePlatformUsers() {
   return Boolean(state.accessContext?.canDeleteUsers);
 }
 
-function canManageTenant(tenantId = currentTenantId()) {
+function tenantMembership(tenantId = currentTenantId()) {
+  return (state.accessContext?.memberships || []).find((item) => item.tenantId === tenantId) || null;
+}
+
+function canEditTenant(tenantId = currentTenantId(), moduleCode = "business") {
   if (isPlatformAdmin()) return true;
-  const membership = (state.accessContext?.memberships || []).find((item) => item.tenantId === tenantId);
+  const membership = tenantMembership(tenantId);
+  if (!membership || !["franchise_admin", "manager", "user"].includes(membership.role)) return false;
+  if (["franchise_admin", "manager"].includes(membership.role) || moduleCode === "business") return true;
+  const permission = (membership.permissions || []).find((item) => item.moduleCode === moduleCode);
+  return Boolean(permission?.canEdit);
+}
+
+function canManageTenant(tenantId = currentTenantId()) {
+  if (isPlatformAdmin()) return sessionFranchisorRole() === "admin";
+  const membership = tenantMembership(tenantId);
   return Boolean(membership?.role === "franchise_admin" || membership?.role === "manager");
 }
 
 function applyViewPermissions() {
-  if (isPlatformAdmin()) return;
-  app.querySelectorAll("[data-delete-unit]").forEach((element) => { element.hidden = true; });
-  if (canManageTenant()) return;
+  const tenantId = currentTenantId();
+  const canEdit = canEditTenant(tenantId, departmentModuleCode(state.view));
+  const canManage = canManageTenant(tenantId);
+  const canDeleteUnit = sessionFranchisorRole() === "admin";
+
+  if (!canDeleteUnit) {
+    app.querySelectorAll("[data-delete-unit]").forEach((element) => { element.hidden = true; });
+  }
+  if (!canManage) {
+    app.querySelectorAll([
+      "[data-delete-operational]", "[data-delete-accreditation]", "[data-delete-record]",
+      "[data-delete-module-record]", "[data-remove-attachment]",
+    ].join(",")).forEach((element) => { element.hidden = true; });
+  }
+  if (canEdit) return;
 
   const protectedSelectors = [
     "[data-status-id]", "[data-pendency-status]", "[data-pendency-note]",
@@ -1913,16 +2003,15 @@ function applyViewPermissions() {
     "[data-accreditation-owner]", "[data-accreditation-attachments]", "[data-accreditation-notes]",
     "[data-operational-field]", "[data-unit-record-form] input", "[data-unit-record-form] select",
     "[data-unit-record-form] textarea", "[data-add-unit-record]", "[data-save-pendencies]",
-    "[data-save-accreditations]", "[data-save-operational]", "[data-delete-operational]",
-    "[data-delete-accreditation]", "[data-delete-record]", "[data-schedule-status]",
+    "[data-save-accreditations]", "[data-save-operational]", "[data-schedule-status]",
     "[data-schedule-owner]", "[data-schedule-deadline]", "[data-schedule-actual-date]",
     "[data-schedule-notes]", "[data-save-schedule]", "[data-file-upload]",
-    "[data-remove-attachment]", "[data-pendency-owner]", "[data-pendency-deadline]",
+    "[data-pendency-owner]", "[data-pendency-deadline]",
     "[data-pendency-priority]",
   ];
   app.querySelectorAll(protectedSelectors.join(",")).forEach((element) => { element.disabled = true; });
   if (["franchises", "roadmap", "purchases", "accreditation"].includes(state.view)) {
-    app.insertAdjacentHTML("afterbegin", '<div class="permission-banner">Visualização de acompanhamento. Alterações são permitidas para administradores e gerentes da franquia.</div>');
+    app.insertAdjacentHTML("afterbegin", '<div class="permission-banner">Visualização de acompanhamento. Solicite permissão de edição ao administrador da franquia.</div>');
   }
 }
 
@@ -2108,17 +2197,17 @@ function metricCards(metrics) {
 }
 
 function recordStatusSelect(moduleCode, record, statuses) {
-  if (!canManageTenant()) return `<span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>`;
+  if (!canEditTenant(currentTenantId(), moduleCode)) return `<span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>`;
   return `<select class="${statusClass(record.status)} module-record-status" data-module-record-status data-module-code="${escapeHtml(moduleCode)}" data-record-id="${escapeHtml(record.id)}" aria-label="Status de ${escapeHtml(record.title)}">
     ${statuses.map((status) => recordOption(status, status, record.status)).join("")}
   </select>`;
 }
 
 function moduleRecordActions(moduleCode, record) {
-  if (!canManageTenant()) return "";
+  if (!canEditTenant(currentTenantId(), moduleCode)) return "";
   return `<div class="module-row-actions">
     <button class="icon-text-button" data-edit-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.id)}" type="button">Editar</button>
-    <button class="icon-text-button danger" data-delete-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-id="${escapeHtml(record.id)}" type="button">Excluir</button>
+    ${canManageTenant() ? `<button class="icon-text-button danger" data-delete-module-record data-module-code="${escapeHtml(moduleCode)}" data-record-id="${escapeHtml(record.id)}" type="button">Excluir</button>` : ""}
   </div>`;
 }
 
@@ -2150,7 +2239,7 @@ function renderHrModule(tenant) {
       <div><span class="eyebrow">Página pública</span><h2>Portal de vagas da franquia</h2><p>Vagas marcadas como públicas aparecem automaticamente para candidatos.</p></div>
       <a class="ghost-button" href="?careers=${encodeURIComponent(tenantCode)}" target="_blank" rel="noopener">Abrir página pública</a>
     </section>
-    ${canManageTenant() ? `<div class="department-form-layout">
+    ${canEditTenant(currentTenantId(), "hr") ? `<div class="department-form-layout">
       ${renderVacancyForm(vacancyEdit)}
       ${renderCandidateForm(candidateEdit, vacancies)}
     </div>` : ""}
@@ -2222,7 +2311,7 @@ function renderDpModule() {
       { label: "Folhas abertas", value: openPayroll.length, detail: `${payrolls.length} competência(s)`, tone: "warning" },
       { label: "Afastados / férias", value: employees.filter((r) => ["Afastado", "Férias"].includes(r.status)).length, detail: "Movimentações atuais", tone: "purple" },
     ])}
-    ${canManageTenant() ? `<div class="department-form-layout">${renderEmployeeForm(employeeEdit)}${renderPayrollForm(payrollEdit)}</div>` : ""}
+    ${canEditTenant(currentTenantId(), "dp") ? `<div class="department-form-layout">${renderEmployeeForm(employeeEdit)}${renderPayrollForm(payrollEdit)}</div>` : ""}
     <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Pessoas</span><h2>Colaboradores</h2></div></div>
       ${employees.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Colaborador</th><th>Cargo</th><th>Admissão</th><th>Salário</th><th>Status</th><th>Ações</th></tr></thead><tbody>${employees.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "cpf", "CPF não informado"))}</small></td><td>${escapeHtml(recordValue(record, "role"))}<small>${escapeHtml(recordValue(record, "department"))}</small></td><td>${displayDate(recordValue(record, "admissionDate"))}</td><td>${money(recordValue(record, "salary"))}</td><td>${recordStatusSelect("dp", record, ["Ativo", "Férias", "Afastado", "Desligado"])}</td><td>${moduleRecordActions("dp", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum colaborador cadastrado.")}
     </section>
@@ -2253,7 +2342,7 @@ function renderAccountingModule() {
       { label: "Em conferência", value: reviewing.length, detail: "Aguardando análise", tone: "warning" },
       { label: "Devolvidos", value: returned.length, detail: "Processamento concluído", tone: "purple" },
     ])}
-    ${canManageTenant() ? renderAccountingForm(editingRecord("accounting", "document")) : ""}
+    ${canEditTenant(currentTenantId(), "accounting") ? renderAccountingForm(editingRecord("accounting", "document")) : ""}
     <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Central contábil</span><h2>Documentos por competência</h2></div></div>
       ${documents.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Documento</th><th>Competência</th><th>Prazo</th><th>Responsável</th><th>Anexo</th><th>Status</th><th>Ações</th></tr></thead><tbody>${documents.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "notes", "Sem observações"))}</small></td><td>${escapeHtml(recordValue(record, "competence", "Não informada"))}</td><td>${displayDate(recordValue(record, "dueDate"))}</td><td>${escapeHtml(recordValue(record, "responsible", "Não informado"))}</td><td>${attachmentSummary(recordValue(record, "attachment"))}</td><td>${recordStatusSelect("accounting", record, ["Solicitado", "Enviado", "Em conferência", "Correção solicitada", "Devolvido"])}</td><td>${moduleRecordActions("accounting", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum documento contábil cadastrado.")}
     </section>`;
@@ -2285,7 +2374,7 @@ function renderFinanceModule() {
       { label: "A pagar", value: money(payable), detail: "Despesas em aberto", tone: "warning" },
       { label: "Vencidos", value: overdue.length, detail: money(overdue.reduce((sum, record) => sum + numberValue(recordValue(record, "amount")), 0)), tone: "danger" },
     ])}
-    ${canManageTenant() ? renderFinanceForm(editingRecord("finance", "transaction")) : ""}
+    ${canEditTenant(currentTenantId(), "finance") ? renderFinanceForm(editingRecord("finance", "transaction")) : ""}
     <section class="panel department-section"><div class="section-title-row"><div><span class="eyebrow">Movimentações</span><h2>Contas a pagar e receber</h2></div><span class="badge info">${transactions.length} lançamento(s)</span></div>
       ${transactions.length ? `<div class="table-wrap"><table class="department-table"><thead><tr><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Pagamento</th><th>Status</th><th>Ações</th></tr></thead><tbody>${transactions.map((record) => `<tr><td><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(recordValue(record, "account", "Conta não informada"))}</small></td><td><span class="badge ${recordValue(record, "type") === "Receita" ? "done" : "pending"}">${escapeHtml(recordValue(record, "type"))}</span></td><td>${escapeHtml(recordValue(record, "category"))}</td><td><strong>${money(recordValue(record, "amount"))}</strong></td><td>${displayDate(recordValue(record, "dueDate"))}</td><td>${displayDate(recordValue(record, "paidDate"))}</td><td>${recordStatusSelect("finance", record, ["Previsto", "Pendente", "Pago", "Vencido", "Cancelado"])}</td><td>${moduleRecordActions("finance", record)}</td></tr>`).join("")}</tbody></table></div>` : empty("Nenhum lançamento financeiro cadastrado.")}
     </section>`;
@@ -4154,11 +4243,14 @@ function manualStatusSelect(item, options) {
 }
 
 function recordActions(item) {
+  if (!canManageTenant()) return "";
   if (!item.manual) return `<span class="record-source">Base</span>`;
   return `<button class="link-button danger" data-delete-record="${item.id}" type="button">Excluir</button>`;
 }
 
 function accreditationActions(item) {
+  const unit = unitForId(item.unitId);
+  if (!canManageTenant(unit?.tenantId || item.unitId)) return "";
   if (item.manual) return `<button class="link-button danger" data-delete-record="${item.id}" type="button">Excluir</button>`;
   return `<button class="link-button danger" data-delete-accreditation data-accreditation-id="${escapeHtml(item.id)}" data-unit-id="${escapeHtml(item.unitId)}" data-procedure-id="${escapeHtml(item.procedureId)}" type="button">Excluir</button>`;
 }
@@ -4228,6 +4320,8 @@ function operationalField(item, column) {
 }
 
 function operationalActions(item) {
+  const unit = unitForId(item.unitId);
+  if (!canManageTenant(unit?.tenantId || item.unitId)) return "";
   if (item.manual) return `<button class="link-button danger" data-delete-record="${escapeHtml(item.id)}" type="button">Excluir</button>`;
   return `<button class="link-button danger" data-delete-operational data-unit-id="${escapeHtml(item.unitId)}" data-record-type="${escapeHtml(item.recordType)}" data-record-id="${escapeHtml(item.recordId || item.id)}" type="button">Excluir</button>`;
 }
@@ -4259,15 +4353,15 @@ async function savePendencyChanges(button) {
 
   try {
     for (const item of updates) {
-      if (item.manual && updateManualRecord(item.id, { status: item.status, ...item.values })) continue;
+      if (item.manual && findManualRecord(item.id)) {
+        await persistUnitOperationalRecord(item.unitId, "pendencies", item.id, {
+          status: item.status,
+          ...item.values,
+        });
+        updateManualRecord(item.id, { status: item.status, ...item.values });
+        continue;
+      }
 
-      state.pendencyNotes[item.id] = item.values.notes;
-      setLocalOperationalRecord({
-        unitId: item.unitId,
-        recordType: "pendencies",
-        recordId: item.id,
-        values: item.values,
-      });
       if (supabaseEnabled && state.auth?.token) {
         const functionName = isPurchaseId(item.id) ? "update_purchase_status" : "update_task_status";
         const payload = isPurchaseId(item.id)
@@ -4285,11 +4379,19 @@ async function savePendencyChanges(button) {
       } else {
         state.statusOverrides[item.id] = item.status;
       }
+      state.pendencyNotes[item.id] = item.values.notes;
+      setLocalOperationalRecord({
+        unitId: item.unitId,
+        recordType: "pendencies",
+        recordId: item.id,
+        values: item.values,
+      });
     }
     writeStorage("franchisePendencyNotes", state.pendencyNotes);
     writeStorage("franchiseStatusOverrides", state.statusOverrides);
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
     render();
+    showOperationToast("Pendências salvas com sucesso.");
   } catch (error) {
     button.disabled = false;
     button.textContent = originalText;
@@ -4318,9 +4420,12 @@ async function saveAccreditationChanges(button) {
 
   try {
     for (const item of updates) {
-      if (updateManualRecord(item.id, item)) continue;
+      if (findManualRecord(item.id)) {
+        await persistUnitOperationalRecord(item.unitId, "accreditations", item.id, item);
+        updateManualRecord(item.id, item);
+        continue;
+      }
 
-      setLocalAccreditationRecord(item);
       if (supabaseEnabled && state.auth?.token) {
         await supabaseRpc("update_accreditation_record", {
           p_token: state.auth.token,
@@ -4336,9 +4441,11 @@ async function saveAccreditationChanges(button) {
       } else {
         state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...item, hidden: false };
       }
+      setLocalAccreditationRecord(item);
     }
     writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
     render();
+    showOperationToast("Credenciamentos salvos com sucesso.");
   } catch (error) {
     button.disabled = false;
     button.textContent = originalText;
@@ -4355,10 +4462,6 @@ async function deleteAccreditationRecord(button) {
   };
 
   try {
-    setLocalAccreditationRecord(item);
-    state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...item };
-    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
-
     if (supabaseEnabled && state.auth?.token) {
       await supabaseRpc("delete_accreditation_record", {
         p_token: state.auth.token,
@@ -4366,6 +4469,9 @@ async function deleteAccreditationRecord(button) {
         p_procedure_id: item.procedureId,
       });
     }
+    setLocalAccreditationRecord(item);
+    state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...item };
+    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
     render();
   } catch (error) {
     alert(error.message || "Não foi possível excluir o credenciamento.");
@@ -4382,6 +4488,38 @@ function setLocalAccreditationRecord(item) {
   procedure.details[item.unitId] = { ...current, ...item };
   if (item.status) procedure.statuses[item.unitId] = item.status;
   if (item.hidden) delete procedure.statuses[item.unitId];
+}
+
+async function persistUnitOperationalRecord(unitId, recordType, recordId, values) {
+  if (!supabaseEnabled || !state.auth?.token) return null;
+  return supabaseRpc("update_unit_operational_record", {
+    p_token: state.auth.token,
+    p_unit_id: unitId,
+    p_record_type: recordType,
+    p_record_id: recordId,
+    p_payload: values,
+  });
+}
+
+async function hideUnitOperationalRecord(unitId, recordType, recordId) {
+  if (!supabaseEnabled || !state.auth?.token) return null;
+  return supabaseRpc("delete_unit_operational_record", {
+    p_token: state.auth.token,
+    p_unit_id: unitId,
+    p_record_type: recordType,
+    p_record_id: recordId,
+  });
+}
+
+function showOperationToast(message, tone = "success") {
+  document.querySelector(".operation-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = `operation-toast ${tone}`;
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `<i data-lucide="${tone === "success" ? "circle-check-big" : "circle-alert"}"></i><span>${escapeHtml(message)}</span>`;
+  document.body.appendChild(toast);
+  if (window.lucide) window.lucide.createIcons({ nodes: [toast] });
+  window.setTimeout(() => toast.remove(), 3200);
 }
 
 async function saveOperationalChanges(recordType, button) {
@@ -4408,14 +4546,14 @@ async function saveOperationalChanges(recordType, button) {
   try {
     for (const item of updates) {
       if (item.manual) {
+        await persistUnitOperationalRecord(item.unitId, item.recordType, item.recordId, item.values);
         updateManualRecord(item.recordId, item.values);
         continue;
       }
 
-      setLocalOperationalRecord({ ...item, hidden: false });
-      if (recordType === "purchase-details" && unitForId(item.unitId)?.purchases?.some((purchase) => purchase.id === item.recordId)) {
-        state.statusOverrides[item.recordId] = item.values.status || "Pendente";
-        setLocalItemStatus(item.recordId, item.values.status || "Pendente");
+      const isPurchase = recordType === "purchase-details"
+        && unitForId(item.unitId)?.purchases?.some((purchase) => purchase.id === item.recordId);
+      if (isPurchase) {
         if (supabaseEnabled && state.auth?.token) {
           await supabaseRpc("update_purchase_status", {
             p_token: state.auth.token,
@@ -4424,19 +4562,17 @@ async function saveOperationalChanges(recordType, button) {
           });
         }
       }
-      if (supabaseEnabled && state.auth?.token) {
-        await supabaseRpc("update_unit_operational_record", {
-          p_token: state.auth.token,
-          p_unit_id: item.unitId,
-          p_record_type: item.recordType,
-          p_record_id: item.recordId,
-          p_payload: item.values,
-        });
+      await persistUnitOperationalRecord(item.unitId, item.recordType, item.recordId, item.values);
+      setLocalOperationalRecord({ ...item, hidden: false });
+      if (isPurchase) {
+        state.statusOverrides[item.recordId] = item.values.status || "Pendente";
+        setLocalItemStatus(item.recordId, item.values.status || "Pendente");
       }
     }
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
     writeStorage("franchiseStatusOverrides", state.statusOverrides);
     render();
+    showOperationToast("Alterações salvas com sucesso.");
   } catch (error) {
     button.disabled = false;
     button.textContent = originalText;
@@ -4465,13 +4601,6 @@ async function saveScheduleChanges(button) {
 
   try {
     for (const item of updates) {
-      setLocalOperationalRecord({
-        unitId: item.unitId,
-        recordType: "schedule",
-        recordId: item.recordId,
-        values: item.values,
-      });
-
       if (supabaseEnabled && state.auth?.token) {
         await supabaseRpc("update_task_status", {
           p_token: state.auth.token,
@@ -4489,10 +4618,17 @@ async function saveScheduleChanges(button) {
       } else {
         state.statusOverrides[item.recordId] = item.status;
       }
+      setLocalOperationalRecord({
+        unitId: item.unitId,
+        recordType: "schedule",
+        recordId: item.recordId,
+        values: item.values,
+      });
     }
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
     writeStorage("franchiseStatusOverrides", state.statusOverrides);
     render();
+    showOperationToast("Cronograma salvo com sucesso.");
   } catch (error) {
     button.disabled = false;
     button.textContent = originalText;
@@ -4512,18 +4648,11 @@ async function deleteOperationalRecord(button) {
     && !window.confirm("Excluir este registro e o histórico vinculado a ele?")) return;
 
   try {
+    await hideUnitOperationalRecord(item.unitId, item.recordType, item.recordId);
     setLocalOperationalRecord(item);
     writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
-
-    if (supabaseEnabled && state.auth?.token) {
-      await supabaseRpc("delete_unit_operational_record", {
-        p_token: state.auth.token,
-        p_unit_id: item.unitId,
-        p_record_type: item.recordType,
-        p_record_id: item.recordId,
-      });
-    }
     render();
+    showOperationToast("Registro excluído.");
   } catch (error) {
     alert(error.message || "Não foi possível excluir este registro.");
   }
@@ -4560,20 +4689,36 @@ function updateManualRecord(recordId, patch) {
   return updated;
 }
 
-function deleteManualRecord(recordId) {
-  let deleted = false;
+function findManualRecord(recordId) {
   for (const unitRecords of Object.values(state.unitRecords)) {
-    for (const [type, records] of Object.entries(unitRecords || {})) {
-      const nextRecords = records.filter((item) => item.id !== recordId);
-      if (nextRecords.length !== records.length) {
-        unitRecords[type] = nextRecords;
-        deleted = true;
-      }
+    for (const records of Object.values(unitRecords || {})) {
+      const record = records.find((item) => item.id === recordId);
+      if (record) return record;
     }
   }
-  if (!deleted) return;
-  writeStorage("franchiseUnitRecords", state.unitRecords);
-  render();
+  return null;
+}
+
+async function deleteManualRecord(recordId) {
+  let target = null;
+  for (const [unitId, unitRecords] of Object.entries(state.unitRecords)) {
+    for (const [type, records] of Object.entries(unitRecords || {})) {
+      const record = records.find((item) => item.id === recordId);
+      if (record) target = { unitId, type, record };
+    }
+  }
+  if (!target || !window.confirm("Excluir este registro e o histórico vinculado a ele?")) return;
+
+  try {
+    await hideUnitOperationalRecord(target.unitId, target.type, recordId);
+    state.unitRecords[target.unitId][target.type] = state.unitRecords[target.unitId][target.type]
+      .filter((item) => item.id !== recordId);
+    writeStorage("franchiseUnitRecords", state.unitRecords);
+    render();
+    showOperationToast("Registro excluído.");
+  } catch (error) {
+    alert(error.message || "Não foi possível excluir este registro.");
+  }
 }
 
 function customRecords(unit, type) {
@@ -4581,6 +4726,7 @@ function customRecords(unit, type) {
 }
 
 function recordForm(unit, type, fields, buttonLabel) {
+  if (!canEditTenant(unit.tenantId || unit.id, "business")) return "";
   return `
     <form class="record-form" data-unit-record-form data-unit-id="${unit.id}" data-record-type="${type}">
       <div class="record-form-head">
@@ -4917,7 +5063,7 @@ function renderPurchases() {
         <div><span class="eyebrow">Projetos · ${escapeHtml(unit.city)}</span><h2>Compras e materiais</h2><p>Atualize prioridade, responsável, prazo, observações e anexos dos itens da unidade.</p></div>
         <span class="module-live-indicator"><i data-lucide="database-zap"></i> Operação editável</span>
       </div>
-      ${canManageTenant(unit.tenantId || unit.id) ? renderDepartmentRecordForm("projects", { label: "Compras e materiais" }, unit, recordType) : ""}
+      ${canEditTenant(unit.tenantId || unit.id, "business") ? renderDepartmentRecordForm("projects", { label: "Compras e materiais" }, unit, recordType) : ""}
       <div class="department-operational-list">
         <div class="section-title-row"><div><span class="eyebrow">Itens da unidade</span><h2>Materiais e entregas</h2></div><span class="badge info">${rows.length} item(ns)</span></div>
         ${renderEditableOperationalTable(recordType, rows, departmentOperationalColumns(), "Nenhum item de compra encontrado.")}
@@ -4927,57 +5073,19 @@ function renderPurchases() {
 }
 
 function renderAccreditation() {
-  const units = data.accreditation.units;
-  const visibleUnits = state.accreditationUnit === "all" ? units : units.filter((unit) => unit.id === state.accreditationUnit);
-  const rows = data.accreditation.procedures.filter((procedure) =>
-    matchesSearch(procedure.name, procedure.group, Object.values(procedure.statuses).join(" "))
-  );
-
+  const unit = selectedDepartmentUnit("credentialing");
+  if (!unit) return empty("Cadastre uma franquia para controlar os procedimentos.");
   return `
-    <section class="panel">
-      <div class="filters">
-        <label>
-          <span class="small-label">Unidade</span>
-          <select data-accreditation-unit>
-            <option value="all"${state.accreditationUnit === "all" ? " selected" : ""}>Todas</option>
-            ${units.map((unit) => `<option value="${unit.id}"${state.accreditationUnit === unit.id ? " selected" : ""}>${escapeHtml(unit.name)}</option>`).join("")}
-          </select>
-        </label>
+    <section class="panel department-section-main credentialing-operation-panel">
+      <div class="section-workspace-head">
         <div>
-          <span class="small-label">Procedimentos</span>
-          <strong>${rows.length}</strong>
+          <span class="eyebrow">Credenciamento · ${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</span>
+          <h2>Procedimentos da unidade</h2>
+          <p>Altere status, datas, responsável, observações e anexos. As mudanças são gravadas somente ao clicar em salvar.</p>
         </div>
-        <div>
-          <span class="small-label">Fechados</span>
-          <strong>${data.summary.accreditationStatus.FECHADO || 0}</strong>
-        </div>
-        <div>
-          <span class="small-label">Negociação</span>
-          <strong>${data.summary.accreditationStatus["EM NEGOCIAÇÃO"] || 0}</strong>
-        </div>
+        <span class="module-live-indicator"><i data-lucide="save"></i> Dados vinculados à franquia</span>
       </div>
-      <div class="table-wrap">
-        <table class="heatmap">
-          <thead>
-            <tr>
-              <th>Grupo</th>
-              <th>Procedimento</th>
-              ${visibleUnits.map((unit) => `<th>${escapeHtml(unit.name)}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${rows
-              .map((procedure) => `
-                <tr>
-                  <td>${escapeHtml(procedure.group)}</td>
-                  <td>${escapeHtml(procedure.name)}</td>
-                  ${visibleUnits.map((unit) => `<td>${heatCell(procedure.statuses[unit.id] || "")}</td>`).join("")}
-                </tr>
-              `)
-              .join("")}
-          </tbody>
-        </table>
-      </div>
+      ${renderUnitAccreditation(unit, unitStats(unit))}
     </section>
   `;
 }
@@ -5291,7 +5399,7 @@ async function deleteFranchiseUnit(unitId) {
   }
 }
 
-function addUnitRecord(button) {
+async function addUnitRecord(button) {
   const form = button.closest("[data-unit-record-form]");
   if (!form) return;
 
@@ -5309,18 +5417,28 @@ function addUnitRecord(button) {
     return;
   }
 
-  state.unitRecords[unitId] ||= {};
-  state.unitRecords[unitId][recordType] ||= [];
-  state.unitRecords[unitId][recordType] = [
-    {
-      id: `${recordType}-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      ...values,
-    },
-    ...state.unitRecords[unitId][recordType],
-  ];
-  writeStorage("franchiseUnitRecords", state.unitRecords);
-  render();
+  const record = {
+    id: `${recordType}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: new Date().toISOString(),
+    ...values,
+  };
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    await persistUnitOperationalRecord(unitId, recordType, record.id, record);
+    state.unitRecords[unitId] ||= {};
+    state.unitRecords[unitId][recordType] ||= [];
+    state.unitRecords[unitId][recordType] = [record, ...state.unitRecords[unitId][recordType]];
+    writeStorage("franchiseUnitRecords", state.unitRecords);
+    render();
+    showOperationToast("Registro adicionado com sucesso.");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Não foi possível adicionar o registro.");
+  }
 }
 
 function primaryRecordField(recordType) {

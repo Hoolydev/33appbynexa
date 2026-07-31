@@ -11031,6 +11031,37 @@ select.empty-status:focus {
   font-size: 10px;
 }
 
+.operation-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border: 1px solid #b9eadb;
+  border-radius: 12px;
+  background: #f0fbf7;
+  color: #08745f;
+  box-shadow: 0 16px 42px rgba(35, 42, 56, 0.18);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.operation-toast svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.operation-toast.error {
+  border-color: #f4c7ca;
+  background: #fff3f3;
+  color: #b4232c;
+}
+
 @media (max-width: 760px) {
   .app-shell .nav-item {
     font-size: 14px;
@@ -11038,5 +11069,10 @@ select.empty-status:focus {
 
   .overview-metrics small {
     font-size: 11px;
+  }
+
+  .operation-toast {
+    right: 16px;
+    bottom: 16px;
   }
 }
