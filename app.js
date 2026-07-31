@@ -1943,6 +1943,10 @@ function isPlatformAdmin() {
   return Boolean(state.accessContext?.platformAdmin);
 }
 
+function canCreateFranchise() {
+  return !supabaseEnabled || Boolean(state.auth?.token || state.auth?.user);
+}
+
 function sessionFranchisorRole() {
   const explicitRole = String(state.auth?.user?.franchisorRole || "").toLowerCase();
   if (["admin", "gestao", "user"].includes(explicitRole)) return explicitRole;
@@ -3635,7 +3639,7 @@ function renderFranchises() {
             <span class="badge info">${visibleUnits.length} visível(is)</span>
             <span class="badge">${statusCounts["Em implantação"] || 0} em implantação</span>
           </div>
-          ${isPlatformAdmin() ? '<button class="primary-button add-franchise-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i> Adicionar Nova Franquia</button>' : ""}
+          ${canCreateFranchise() ? '<button class="primary-button add-franchise-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i> Adicionar Nova Franquia</button>' : ""}
         </div>
       </div>
       <div class="franchise-grid">
@@ -5285,6 +5289,7 @@ function formatDate(value) {
 }
 
 async function createNewDraft() {
+  const createButton = document.querySelector("[data-create-draft]");
   const city = document.querySelector("#draft-city").value.trim();
   const stateCode = document.querySelector("#draft-state").value.trim().toUpperCase();
   const openingDate = document.querySelector("#draft-date").value;
@@ -5297,61 +5302,80 @@ async function createNewDraft() {
     return;
   }
 
-  if (supabaseEnabled && state.auth?.token) {
-    const result = await supabaseRpc("create_unit_from_template", {
-      p_token: state.auth.token,
-      p_city: city,
-      p_state: stateCode,
-      p_franchisee: franchisee,
-      p_opening_date: openingDate,
-      p_owner_name: owner,
-      p_priority: priority,
-    });
-    await loadSupabaseData();
-    state.selectedUnitId = result.unitId;
-    state.franchiseWorkspaceUnitId = result.unitId;
-    state.view = "franchises";
-    activateNav("franchises");
-    showApp();
+  if (supabaseEnabled && !state.auth?.token) {
+    alert("Sua sessão expirou. Entre novamente para adicionar a franquia.");
     return;
   }
 
-  const id = `draft-${slug(`${city}-${stateCode}-${Date.now()}`)}`;
-  const draft = {
-    id,
-    name: `${city.toUpperCase()} ${stateCode}`,
-    city,
-    state: stateCode,
-    franchisee,
-    openingDate,
-    owner,
-    priority,
-    sourceFile: "Plano criado no sistema",
-    tasks: data.modelTasks.map((task, index) => ({
-      id: `${id}-task-${index + 1}`,
-      item: task.item,
-      phase: task.phase,
-      process: task.process,
-      status: "Pendente",
-      deadline: "",
-      actualDate: "",
-      notes: "",
-    })),
-    purchases: data.purchaseItems.map((item, index) => ({
-      id: `${id}-purchase-${index + 1}`,
-      item,
-      status: "Pendente",
-      notes: "",
-    })),
-  };
+  if (createButton) {
+    createButton.disabled = true;
+    createButton.textContent = "Adicionando...";
+  }
 
-  state.drafts = [draft, ...state.drafts];
-  writeStorage("franchiseDrafts", state.drafts);
-  state.selectedUnitId = id;
-  state.franchiseWorkspaceUnitId = id;
-  state.view = "franchises";
-  activateNav("franchises");
-  render();
+  try {
+    if (supabaseEnabled) {
+      const result = await supabaseRpc("create_unit_from_template", {
+        p_token: state.auth.token,
+        p_city: city,
+        p_state: stateCode,
+        p_franchisee: franchisee,
+        p_opening_date: openingDate,
+        p_owner_name: owner,
+        p_priority: priority,
+      });
+      await loadSupabaseData();
+      state.selectedUnitId = result.unitId;
+      state.franchiseWorkspaceUnitId = result.unitId;
+      state.view = "franchises";
+      activateNav("franchises");
+      showApp();
+      return;
+    }
+
+    const id = `draft-${slug(`${city}-${stateCode}-${Date.now()}`)}`;
+    const draft = {
+      id,
+      name: `${city.toUpperCase()} ${stateCode}`,
+      city,
+      state: stateCode,
+      franchisee,
+      openingDate,
+      owner,
+      priority,
+      sourceFile: "Plano criado no sistema",
+      tasks: data.modelTasks.map((task, index) => ({
+        id: `${id}-task-${index + 1}`,
+        item: task.item,
+        phase: task.phase,
+        process: task.process,
+        status: "Pendente",
+        deadline: "",
+        actualDate: "",
+        notes: "",
+      })),
+      purchases: data.purchaseItems.map((item, index) => ({
+        id: `${id}-purchase-${index + 1}`,
+        item,
+        status: "Pendente",
+        notes: "",
+      })),
+    };
+
+    state.drafts = [draft, ...state.drafts];
+    writeStorage("franchiseDrafts", state.drafts);
+    state.selectedUnitId = id;
+    state.franchiseWorkspaceUnitId = id;
+    state.view = "franchises";
+    activateNav("franchises");
+    render();
+  } catch (error) {
+    alert(error.message || "Não foi possível adicionar a franquia.");
+  } finally {
+    if (createButton?.isConnected) {
+      createButton.disabled = false;
+      createButton.textContent = "Adicionar franquia";
+    }
+  }
 }
 
 async function deleteFranchiseUnit(unitId) {
