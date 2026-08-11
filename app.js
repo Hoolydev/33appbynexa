@@ -14,6 +14,7 @@ const state = {
   dashboardUnit: "all",
   dashboardTab: "overview",
   adminTab: "overview",
+  editingAdminUserId: "",
   expandedUnitId: "",
   franchiseWorkspaceUnitId: "",
   unitTabs: readStorage("franchiseUnitTabs", {}),
@@ -383,6 +384,21 @@ app.addEventListener("click", (event) => {
 
   const deletePortalUserButton = event.target.closest("[data-delete-portal-user]");
   if (deletePortalUserButton) adminDeletePortalUser(deletePortalUserButton);
+
+  const editPortalUserButton = event.target.closest("[data-edit-portal-user]");
+  if (editPortalUserButton) {
+    state.editingAdminUserId = editPortalUserButton.closest("[data-admin-access-row]")?.dataset.userId || "";
+    render();
+  }
+
+  const cancelEditPortalUserButton = event.target.closest("[data-cancel-edit-portal-user]");
+  if (cancelEditPortalUserButton) {
+    state.editingAdminUserId = "";
+    render();
+  }
+
+  const saveEditPortalUserButton = event.target.closest("[data-save-edit-portal-user]");
+  if (saveEditPortalUserButton) adminUpdatePortalUser(saveEditPortalUserButton);
 
   const approveModuleButton = event.target.closest("[data-approve-module]");
   if (approveModuleButton) adminApproveModuleRequest(approveModuleButton);
@@ -2635,6 +2651,7 @@ function renderAdminUsers(users, tenants) {
       <div class="admin-user-list">${users.map((user) => {
         const isFranchisor = ["admin", "platform_admin", "platform_gestao", "platform_user"].includes(String(user.platformRole || "").toLowerCase());
         const isCurrentUser = user.id === state.auth?.user?.id;
+        const isEditing = state.editingAdminUserId === user.id;
         const platformLabel = platformRoleLabel(user.platformRole);
         const accessBadges = (user.memberships || []).map((membership) => `<span class="badge info">${escapeHtml(membership.tenantName)} · ${escapeHtml(roleLabel(membership.role))}</span>`).join("")
           || `<span class="badge ${isFranchisor ? "done" : "pending"}">${escapeHtml(isFranchisor ? platformLabel : "Sem franquia")}</span>`;
@@ -2644,10 +2661,36 @@ function renderAdminUsers(users, tenants) {
         const deleteButton = canDeletePlatformUsers() && !isCurrentUser
           ? `<button class="link-button danger" data-delete-portal-user type="button">Excluir</button>`
           : "";
-        return `<article data-admin-access-row data-user-id="${escapeHtml(user.id)}"><div class="admin-user-copy"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><div class="badge-row">${badges}</div></div><div class="admin-user-actions">${accessControls}${deleteButton}</div></article>`;
+        const editButton = canDeletePlatformUsers()
+          ? `<button class="ghost-button" data-edit-portal-user type="button">Editar usuário</button>`
+          : "";
+        const profileDetails = [user.jobTitle, user.regional].filter(Boolean).map(escapeHtml).join(" · ");
+        return `<article class="${isEditing ? "editing" : ""}" data-admin-access-row data-user-id="${escapeHtml(user.id)}"><div class="admin-user-copy"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span>${profileDetails ? `<small>${profileDetails}</small>` : ""}<div class="badge-row">${badges}</div></div><div class="admin-user-actions">${accessControls}<div class="admin-user-command-row">${editButton}${deleteButton}</div></div>${isEditing ? renderAdminUserEditForm(user, isFranchisor, isCurrentUser) : ""}</article>`;
       }).join("") || empty("Nenhum usuário cadastrado")}</div>
     </section>
   `;
+}
+
+function renderAdminUserEditForm(user, isFranchisor, isCurrentUser) {
+  const role = String(user.franchisorRole || ({ platform_admin: "admin", platform_gestao: "gestao", platform_user: "user" }[String(user.platformRole || "").toLowerCase()] || "user"));
+  const roleField = isFranchisor
+    ? `<label>Perfil<select name="role"${isCurrentUser ? " disabled" : ""}><option value="admin"${role === "admin" ? " selected" : ""}>Administrador</option><option value="gestao"${role === "gestao" ? " selected" : ""}>Gestão</option><option value="user"${role === "user" ? " selected" : ""}>Usuário</option></select>${isCurrentUser ? '<input name="role" type="hidden" value="admin" />' : ""}</label>`
+    : '<input name="role" type="hidden" value="tenant_user" />';
+  const statusField = `<label>Status<select name="active"${isCurrentUser ? " disabled" : ""}><option value="true"${user.active !== false ? " selected" : ""}>Ativo</option><option value="false"${user.active === false ? " selected" : ""}>Suspenso</option></select>${isCurrentUser ? '<input name="active" type="hidden" value="true" />' : ""}</label>`;
+  return `<form class="admin-user-edit-form" data-admin-user-edit-form>
+    <div class="section-title-row"><div><span class="eyebrow">Editar acesso</span><h3>${escapeHtml(user.name)}</h3></div><span class="badge info">${isFranchisor ? "Franqueadora" : "Franquia"}</span></div>
+    <div class="admin-user-edit-grid">
+      <label>Nome<input name="name" value="${escapeHtml(user.name)}" required /></label>
+      <label>E-mail<input name="email" type="email" value="${escapeHtml(user.email)}" required /></label>
+      <label>Cargo<input name="jobTitle" value="${escapeHtml(user.jobTitle || "")}" placeholder="Cargo ou função" /></label>
+      <label>Regional<input name="regional" value="${escapeHtml(user.regional || "")}" placeholder="Ex.: Brasil" maxlength="120" /></label>
+      ${roleField}
+      ${statusField}
+      <label class="span-2">Nova senha <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Deixe em branco para manter a senha atual" ${user.authManaged ? "" : "disabled"} /></label>
+    </div>
+    ${user.authManaged ? "" : `<div class="permission-banner warning">A senha só poderá ser alterada depois que este usuário for migrado para o Supabase Authentication.</div>`}
+    <div class="form-actions"><button class="ghost-button" data-cancel-edit-portal-user type="button">Cancelar</button><button class="primary-button" data-save-edit-portal-user type="button">Salvar alterações</button></div>
+  </form>`;
 }
 
 function roleLabel(role) {
@@ -2757,6 +2800,43 @@ async function adminDeletePortalUser(button) {
   } catch (error) {
     button.disabled = false;
     alert(error.message || "Não foi possível excluir o usuário.");
+  }
+}
+
+async function adminUpdatePortalUser(button) {
+  const row = button.closest("[data-admin-access-row]");
+  const form = button.closest("[data-admin-user-edit-form]");
+  if (!row || !form) return;
+  const values = Object.fromEntries([...form.querySelectorAll("input, select")]
+    .filter((field) => !field.disabled)
+    .map((field) => [field.name, field.value.trim()]));
+  if (!values.name || !values.email) {
+    alert("Preencha nome e e-mail.");
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  try {
+    await authenticatedApiRequest("/api/admin/users", {
+      method: "PATCH",
+      body: JSON.stringify({
+        userId: row.dataset.userId,
+        name: values.name,
+        email: values.email,
+        jobTitle: values.jobTitle || "",
+        regional: values.regional || "",
+        role: values.role,
+        active: values.active !== "false",
+        password: values.password || "",
+      }),
+    });
+    state.editingAdminUserId = "";
+    await loadSupabaseData();
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Salvar alterações";
+    alert(error.message || "Não foi possível editar o usuário.");
   }
 }
 

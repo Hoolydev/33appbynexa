@@ -53,10 +53,17 @@ function requireUserDeletionAccess(context) {
   }
 }
 
+function requireUserEditingAccess(context) {
+  if (context.franchisorRole !== "admin") {
+    throw new PublicError("Somente administradores podem editar usuários.", 403);
+  }
+}
+
 module.exports = {
   bearerToken,
   normalizedFranchisorRole,
   requireAuthenticatedAppUser,
   requireUserCreationAccess,
   requireUserDeletionAccess,
+  requireUserEditingAccess,
 };
