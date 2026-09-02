@@ -17449,3 +17449,59 @@ body .app-shell.reference-shell .risk-matrix-panel .approved-panel-head p {
     grid-template-rows: 54px repeat(5, 66px);
   }
 }
+
+/* Mantém o percentual legível no cabeçalho claro da pasta da unidade. */
+body .app-shell.reference-shell .unit-focus-progress {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  min-width: 250px;
+  align-items: end;
+  gap: 6px 12px;
+  padding: 14px 16px;
+  border: 1px solid #e0e4e8;
+  border-radius: 8px;
+  background: #f7f9fa;
+}
+
+body .app-shell.reference-shell .unit-focus-progress > strong {
+  color: #17212d;
+  font-size: 32px;
+  line-height: 1;
+}
+
+body .app-shell.reference-shell .unit-focus-progress > span {
+  color: #687586;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+body .app-shell.reference-shell .unit-focus-progress > .stacked-bar {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 8px;
+  background: #e4e9ed;
+}
+
+/* A conexão entre os passos passa atrás dos rótulos, sem riscar o texto. */
+body .app-shell.reference-shell .approved-wizard-steps > div::after {
+  z-index: 0;
+}
+
+body .app-shell.reference-shell .approved-wizard-steps > div > span,
+body .app-shell.reference-shell .approved-wizard-steps > div > b {
+  position: relative;
+  z-index: 1;
+}
+
+body .app-shell.reference-shell .approved-wizard-steps > div > b {
+  padding-right: 12px;
+  background: #fff;
+  line-height: 1.2;
+}
+
+@media (max-width: 760px) {
+  body .app-shell.reference-shell .unit-focus-progress {
+    width: 100%;
+    min-width: 0;
+  }
+}
