@@ -1462,6 +1462,18 @@ function unitForId(unitId) {
   return data.units.find((unit) => unit.id === unitId) || state.drafts.find((unit) => unit.id === unitId);
 }
 
+function canonicalUnitId(unitId) {
+  const normalizedId = String(unitId || "").trim();
+  const unit = unitForId(normalizedId)
+    || data.units.find((item) => String(item.tenantId || "") === normalizedId);
+
+  if (!unit?.id || String(unit.id).startsWith("draft-")) {
+    throw new Error("A unidade selecionada não está sincronizada com o banco. Atualize a página e selecione a franquia novamente.");
+  }
+
+  return unit.id;
+}
+
 async function uploadTenantFile(file, unitId, category, moduleCode = "business") {
   const unit = unitForId(unitId);
   if (!unit) throw new Error("Não foi possível identificar a franquia deste arquivo.");
@@ -5403,7 +5415,7 @@ async function savePendencyChanges(button) {
         await supabaseRpc(functionName, payload);
         await supabaseRpc("update_unit_operational_record", {
           p_token: state.auth.token,
-          p_unit_id: item.unitId,
+          p_unit_id: canonicalUnitId(item.unitId),
           p_record_type: "pendencies",
           p_record_id: item.id,
           p_payload: item.values,
@@ -5469,7 +5481,7 @@ async function saveAccreditationChanges(button) {
       if (supabaseEnabled && state.auth?.token) {
         await supabaseRpc("update_accreditation_record", {
           p_token: state.auth.token,
-          p_unit_id: item.unitId,
+          p_unit_id: canonicalUnitId(item.unitId),
           p_procedure_id: item.procedureId,
           p_status: item.status,
           p_request_date: item.requestDate || null,
@@ -5505,7 +5517,7 @@ async function deleteAccreditationRecord(button) {
     if (supabaseEnabled && state.auth?.token) {
       await supabaseRpc("delete_accreditation_record", {
         p_token: state.auth.token,
-        p_unit_id: item.unitId,
+        p_unit_id: canonicalUnitId(item.unitId),
         p_procedure_id: item.procedureId,
       });
     }
@@ -5532,9 +5544,10 @@ function setLocalAccreditationRecord(item) {
 
 async function persistUnitOperationalRecord(unitId, recordType, recordId, values) {
   if (!supabaseEnabled || !state.auth?.token) return null;
+  const resolvedUnitId = canonicalUnitId(unitId);
   return supabaseRpc("update_unit_operational_record", {
     p_token: state.auth.token,
-    p_unit_id: unitId,
+    p_unit_id: resolvedUnitId,
     p_record_type: recordType,
     p_record_id: recordId,
     p_payload: values,
@@ -5543,9 +5556,10 @@ async function persistUnitOperationalRecord(unitId, recordType, recordId, values
 
 async function hideUnitOperationalRecord(unitId, recordType, recordId) {
   if (!supabaseEnabled || !state.auth?.token) return null;
+  const resolvedUnitId = canonicalUnitId(unitId);
   return supabaseRpc("delete_unit_operational_record", {
     p_token: state.auth.token,
-    p_unit_id: unitId,
+    p_unit_id: resolvedUnitId,
     p_record_type: recordType,
     p_record_id: recordId,
   });
@@ -5649,7 +5663,7 @@ async function saveScheduleChanges(button) {
         });
         await supabaseRpc("update_unit_operational_record", {
           p_token: state.auth.token,
-          p_unit_id: item.unitId,
+          p_unit_id: canonicalUnitId(item.unitId),
           p_record_type: "schedule",
           p_record_id: item.recordId,
           p_payload: item.values,
