@@ -4,237 +4,265 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>33Doctor APP | Desenvolvido pela Nexa</title>
-    <link rel="stylesheet" href="./styles.css?v=20260811a" />
+    <link rel="stylesheet" href="./styles.css?v=20260901a" />
+    <link rel="stylesheet" href="./landing-v2.css?v=20260824j" />
   </head>
   <body>
-    <section id="landing-screen" class="landing-screen">
-      <header class="landing-nav reference-landing-nav">
-        <a class="landing-brand" href="#inicio" aria-label="33Doctor Plataforma de Gestão do Franqueado">
-          <span class="brand-platform-lockup">
-            <span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span>
-            <small>Plataforma de Gestão do Franqueado</small>
-          </span>
+    <section id="landing-screen" class="landing-screen public-site">
+      <header class="lp-header">
+        <a class="lp-brand" href="#inicio" aria-label="33Doctor Plataforma de Gestão do Franqueado">
+          <span class="lp-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span>
+          <small>Plataforma de Gestão do Franqueado</small>
         </a>
-        <nav aria-label="Navegação da landing page">
-          <a class="active" href="#inicio"><i data-lucide="layout-grid"></i>Plataforma</a>
-          <a href="#modulos"><i data-lucide="layers-3"></i>Implantação</a>
-          <a href="#operacao"><i data-lucide="circle-help"></i>Como funciona</a>
-          <a href="#suporte"><i data-lucide="headset"></i>Suporte</a>
+        <nav aria-label="Navegação da página institucional">
+          <a href="#plataforma">Plataforma</a>
+          <a href="#solucoes">Soluções</a>
+          <a href="#como-funciona">Como funciona</a>
+          <a href="#seguranca">Segurança</a>
+          <a href="#suporte">Suporte</a>
         </nav>
-        <button class="landing-login-button" data-open-login type="button"><i data-lucide="lock-keyhole"></i>Acessar sistema</button>
+        <button class="lp-button lp-button-primary" data-open-login type="button"><i data-lucide="lock-keyhole"></i>Acessar sistema</button>
       </header>
 
-      <main class="reference-landing-main">
-        <section id="inicio" class="reference-landing-hero">
-          <div class="portal-access-row">
-            <div class="portal-switcher" aria-label="Portais da plataforma">
-              <button class="active" data-open-login type="button"><span><i data-lucide="building-2"></i></span><strong>Portal da 33 Doctor<small>Acesso exclusivo da franqueadora</small></strong></button>
-              <button data-open-login type="button"><span><i data-lucide="users"></i></span><strong>Portal do Franqueado<small>Acesso exclusivo do franqueado</small></strong><em>Novo</em></button>
+      <main>
+        <section id="inicio" class="lp-hero">
+          <div class="lp-hero-photo" aria-hidden="true"></div>
+          <div class="lp-hero-copy">
+            <h1>Gestão <strong>integrada.</strong><br />Resultados <strong>conectados.</strong></h1>
+            <p>Uma plataforma completa para acompanhar, gerenciar e impulsionar o crescimento da rede 33Doctor.</p>
+            <div class="lp-actions">
+              <button class="lp-button lp-button-primary" data-open-login type="button"><i data-lucide="lock-keyhole"></i>Acessar sistema<i data-lucide="arrow-right"></i></button>
+              <a class="lp-button lp-button-ghost" href="#plataforma"><i data-lucide="circle-play"></i>Conhecer a plataforma</a>
             </div>
-            <div class="portal-security"><span><i data-lucide="shield-check"></i></span><strong>Ambiente seguro<small>Seus dados protegidos<br />com tecnologia de ponta.</small></strong></div>
+            <div class="lp-hero-proof" aria-label="Diferenciais da plataforma">
+              <span><i data-lucide="shield-check"></i>Ambiente seguro</span>
+              <span><i data-lucide="box"></i>Dados centralizados</span>
+              <span><i data-lucide="headphones"></i>Suporte especializado</span>
+            </div>
           </div>
 
-          <div class="reference-hero-stage">
-            <div class="reference-hero-copy">
-              <h1>Sua franquia<br />no controle.<br /><strong>Sua operação<br />pronta para crescer.</strong></h1>
-              <p>Acompanhe a implantação, organize sua equipe, cumpra as entregas da unidade e tome decisões com o suporte da franqueadora em cada etapa.</p>
-              <div class="reference-hero-actions">
-                <button class="reference-primary-button" data-open-login type="button"><i data-lucide="layout-grid"></i>Acessar sistema<i data-lucide="arrow-right"></i></button>
-                <a class="reference-secondary-button" href="#modulos"><i data-lucide="circle-play"></i>Conhecer a implantação</a>
+          <div class="lp-hero-product" aria-label="Prévia real da página inicial da plataforma 33Doctor" data-lp-reveal>
+            <div class="lp-app-preview lp-app-preview--home">
+              <aside class="lp-app-sidebar">
+                <span class="lp-app-brand"><b>+</b>33doctor</span>
+                <small>Principal</small>
+                <strong><i data-lucide="house"></i>Página inicial</strong>
+                <span><i data-lucide="layout-grid"></i>Painel executivo</span>
+                <span><i data-lucide="chart-no-axes-combined"></i>Indicadores</span>
+                <small>Módulos</small>
+                <span><i data-lucide="network"></i>Rede de Franquias</span>
+                <span><i data-lucide="route"></i>Jornada de implantação</span>
+                <span><i data-lucide="badge-check"></i>Credenciamento</span>
+              </aside>
+              <div class="lp-app-surface">
+                <header class="lp-app-topbar">
+                  <div class="lp-app-portals"><b>Franqueadora</b><span>Franqueado</span></div>
+                  <div class="lp-app-search"><i data-lucide="search"></i>Buscar no sistema...</div>
+                  <i class="lp-app-bell" data-lucide="bell"></i><span class="lp-app-avatar">AD</span>
+                </header>
+                <main class="lp-app-page">
+                  <div class="lp-app-pagehead"><div><h3>Página inicial</h3><p>Cockpit operacional da rede 33Doctor</p></div><button><i data-lucide="plus"></i>Nova ação</button></div>
+                  <div class="lp-app-kpis">
+                    <article><i data-lucide="building-2"></i><div><small>Unidades totais</small><b data-lp-count="16">16</b><span>rede monitorada</span></div><em class="neutral"><i></i><i></i><i></i><i></i></em></article>
+                    <article><i data-lucide="hard-hat"></i><div><small>Em implantação</small><b data-lp-count="14">14</b><span>acompanhamento ativo</span></div><em class="blue"><i></i><i></i><i></i><i></i></em></article>
+                    <article><i data-lucide="store"></i><div><small>Em operação</small><b data-lp-count="2">2</b><span>unidades inauguradas</span></div><em class="green"><i></i><i></i><i></i><i></i></em></article>
+                    <article><i data-lucide="triangle-alert"></i><div><small>Pendências críticas</small><b data-lp-count="408">408</b><span>exigem atenção</span></div><em class="red"><i></i><i></i><i></i><i></i></em></article>
+                  </div>
+                  <div class="lp-app-tabs"><b>Todas</b><span>Em implantação</span><span>Em operação</span><span>Em atraso</span></div>
+                  <div class="lp-app-workspace">
+                    <section class="lp-app-units">
+                      <header><div><strong>Acompanhamento das unidades</strong><small>Avanço, prazo e responsáveis da rede.</small></div><a>Ver todas as unidades</a></header>
+                      <div class="lp-app-table-head"><span>Registro</span><span>Unidade</span><span>Status</span><span>Prazo</span></div>
+                      <div class="lp-app-table-row"><span><b>Implantação da unidade</b><small>68% concluído</small></span><span><b>Unidade Centro/SP</b><small>Equipe responsável</small></span><em>Em implantação</em><time>18/09/2026</time></div>
+                      <div class="lp-app-table-row"><span><b>Implantação da unidade</b><small>92% concluído</small></span><span><b>Unidade Norte/PA</b><small>Equipe responsável</small></span><em class="ready">Pronta para inauguração</em><time>02/10/2026</time></div>
+                    </section>
+                    <aside class="lp-app-priorities"><header><strong>Prioridades da rede</strong><small>O que exige decisão agora.</small></header><p><i></i><span><b>Documentação pendente</b><small>Unidade Centro · hoje</small></span></p><p><i></i><span><b>Marco de implantação</b><small>Unidade Norte · amanhã</small></span></p><p><i></i><span><b>Aprovação necessária</b><small>Unidade Sul · 2 dias</small></span></p></aside>
+                  </div>
+                </main>
               </div>
             </div>
+          </div>
+        </section>
 
-            <div class="reference-hero-visual" aria-label="Visão geral da plataforma 33Doctor">
-              <div class="platform-cross" aria-hidden="true"><span></span><i></i></div>
-              <article class="reference-hero-card network-card">
-                <span>Visão da operação<i data-lucide="globe-2"></i></span>
-                <strong>Negócios e Implantação</strong>
-                <small>Roadmap · Compras · Documentos · Pendências</small>
-                <button data-open-login type="button">Acessar operação<i data-lucide="arrow-right"></i></button>
-              </article>
-              <article class="reference-hero-card priority-card">
-                <span>Pendências prioritárias<i data-lucide="bell"></i></span>
-                <div><strong>3</strong><small>Acompanhamentos<br />em aberto</small></div>
-                <button data-open-login type="button">Ver pendências<i data-lucide="arrow-right"></i></button>
-              </article>
-              <article class="reference-hero-card progress-card">
-                <span>Implantação da unidade</span>
-                <div class="reference-progress"><i><b>68%</b></i><small>24 etapas<br />concluídas</small></div>
-                <em><b style="--progress:68%"></b></em>
-                <button data-open-login type="button">Continuar acompanhamento<i data-lucide="arrow-right"></i></button>
-              </article>
-              <article class="reference-hero-card milestone-card">
-                <i data-lucide="calendar-check-2"></i>
-                <span>Próximo marco importante</span>
-                <strong>Treinamento da equipe</strong>
-                <small>Em 7 dias</small>
-              </article>
+        <section id="plataforma" class="lp-network lp-section">
+          <div class="lp-section-title centered"><h2>Sua rede inteira em uma <strong>única plataforma.</strong></h2></div>
+          <div class="lp-value-row">
+            <article><i data-lucide="target"></i><div><strong>Visão da rede</strong><p>Indicadores, alertas e prioridades.</p></div></article>
+            <article><i data-lucide="clipboard-check"></i><div><strong>Operação organizada</strong><p>Processos, responsáveis e prazos.</p></div></article>
+            <article><i data-lucide="shield-check"></i><div><strong>Decisões seguras</strong><p>Informações rastreáveis e atualizadas.</p></div></article>
+          </div>
+          <div class="lp-network-showcase">
+            <div class="lp-annotation left top"><i data-lucide="circle-dot"></i><strong>Indicadores e alertas</strong><span>para foco no que importa.</span></div>
+            <div class="lp-annotation left bottom"><i data-lucide="triangle-alert"></i><strong>Unidades e implantações</strong><span>acompanhadas de ponta a ponta.</span></div>
+            <div class="lp-app-preview lp-app-preview--executive compact" data-lp-reveal>
+              <aside class="lp-app-sidebar"><span class="lp-app-brand"><b>+</b>33doctor</span><small>Principal</small><span><i data-lucide="house"></i>Página inicial</span><strong><i data-lucide="layout-grid"></i>Painel executivo</strong><span><i data-lucide="chart-no-axes-combined"></i>Indicadores</span><small>Módulos</small><span><i data-lucide="network"></i>Rede de Franquias</span><span><i data-lucide="briefcase-business"></i>Gestão Corporativa</span></aside>
+              <div class="lp-app-surface">
+                <header class="lp-app-topbar"><div class="lp-app-portals"><b>Franqueadora</b><span>Franqueado</span></div><div class="lp-app-search"><i data-lucide="search"></i>Buscar unidade, indicador ou risco...</div><span class="lp-app-avatar">AD</span></header>
+                <main class="lp-app-page">
+                  <div class="lp-app-pagehead"><div><h3>Painel executivo</h3><p>Visão estratégica e desempenho consolidado da rede.</p></div><button><i data-lucide="plus"></i>Nova decisão</button></div>
+                  <div class="lp-executive-kpis"><article><small>Unidades na rede</small><b data-lp-count="16">16</b><span>+2</span></article><article><small>Crescimento da rede</small><b data-lp-count="25" data-lp-prefix="+" data-lp-suffix="%">+25%</b><span>+5 p.p.</span></article><article><small>Implantação média</small><b data-lp-count="68" data-lp-suffix="%">68%</b><span>+12 p.p.</span></article><article><small>Unidades em risco</small><b data-lp-count="2">2</b><span class="danger">+1</span></article></div>
+                  <div class="lp-app-tabs"><span>Visão da rede</span><b>Expansão</b><span>Operação</span><span>Financeiro</span><span>Pessoas</span><span>Governança</span></div>
+                  <div class="lp-executive-workspace"><section><header><small>Painel executivo</small><strong>Expansão</strong><button>Nova decisão executiva</button></header><div class="lp-executive-chart"><span style="--bar:76%"></span><span style="--bar:58%"></span><span style="--bar:82%"></span><span style="--bar:46%"></span><span style="--bar:68%"></span></div></section><aside><strong>Status do workflow</strong><p><i></i>Registrada <b>4</b></p><p><i></i>Em execução <b>7</b></p><p class="done"><i></i>Validada <b>12</b></p><p><i></i>Encerrada <b>9</b></p></aside></div>
+                </main>
+              </div>
             </div>
-          </div>
-
-          <div class="reference-benefit-strip">
-            <article><span><i data-lucide="map"></i></span><b>01</b><strong>Direcionamento<br />da franqueadora<small>Alinhamento inicial e plano<br />de implantação da unidade.</small></strong></article>
-            <article><span><i data-lucide="calendar-check"></i></span><b>02</b><strong>Rotina da unidade<br />organizada<small>Processos, tarefas e checklists<br />para o dia a dia.</small></strong></article>
-            <article><span><i data-lucide="chart-no-axes-column-increasing"></i></span><b>03</b><strong>Gestão com<br />indicadores<small>Acompanhe resultados e tome<br />decisões com mais segurança.</small></strong></article>
-            <article><span><i data-lucide="headphones"></i></span><b>04</b><strong>Suporte em<br />cada etapa<small>Conte com o apoio da franqueadora<br />sempre que precisar.</small></strong></article>
-          </div>
-
-          <div id="suporte" class="reference-trust-strip">
-            <article><span><i data-lucide="shield-check"></i></span><strong>Segurança e confiabilidade<small>Dados protegidos com tecnologia<br />e conformidade LGPD.</small></strong></article>
-            <article><span><i data-lucide="cloud"></i></span><strong>Tudo em um só lugar<small>Informações centralizadas para<br />mais agilidade e controle.</small></strong></article>
-            <article><span><i data-lucide="trending-up"></i></span><strong>Crescimento sustentável<small>Gestão eficiente hoje para resultados<br />consistentes amanhã.</small></strong></article>
-            <div class="trust-brand"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><strong>Cuidar de pessoas.<br />Transformar vidas.</strong></div>
+            <div class="lp-annotation right top"><i data-lucide="chart-no-axes-column-increasing"></i><strong>Evolução da rede</strong><span>clareza para decisões estratégicas.</span></div>
+            <div class="lp-annotation right bottom"><i data-lucide="circle-check"></i><strong>Pendências e prazos</strong><span>visibilidade do que exige atenção.</span></div>
           </div>
         </section>
 
-        <section id="plataforma" class="landing-intro">
-          <div class="landing-section-heading centered">
-            <span>33Doctor APP</span>
-            <h2>A franqueadora orienta. Você acompanha, executa e evolui.</h2>
-            <p>Enquanto a 33Doctor amplia o acesso a consultas e exames particulares com valores mais acessíveis, o app oferece a estrutura para o franqueado operar esse propósito com padrão e previsibilidade.</p>
-          </div>
-          <div class="landing-highlight-grid">
-            <article><strong>Implantação assistida</strong><p>Saiba o que já foi concluído, quais são os próximos passos e o que depende da sua unidade.</p></article>
-            <article><strong>Rotina sem dispersão</strong><p>Responsáveis, prazos, documentos e pendências organizados no ambiente da sua franquia.</p></article>
-            <article><strong>Suporte mais próximo</strong><p>A franqueadora acompanha a operação e direciona sua equipe com informações atualizadas.</p></article>
-          </div>
-        </section>
-
-        <section id="modulos" class="landing-modules">
-          <div class="landing-section-heading">
-            <span>Negócios e implantação</span>
-            <h2>Da assinatura à inauguração, tudo em um único fluxo.</h2>
-          </div>
-          <div class="landing-module-grid single-module">
-            <article class="featured"><span>01</span><strong>Negócios e Implantação</strong><p>Roadmap, compras, documentos, pendências, credenciamentos e inauguração.</p><em>Ativo por padrão</em></article>
+        <section id="solucoes" class="lp-solutions lp-section">
+          <div class="lp-section-title centered"><h2>Tudo o que a operação precisa para <strong>evoluir.</strong></h2></div>
+          <div class="lp-accordion">
+            <details><summary><i data-lucide="gauge"></i><strong>Visão geral</strong><span>Acompanhe o panorama da rede com indicadores e alertas.</span><em>Página inicial · Painel executivo · Indicadores</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Reúna prioridades, compromissos, evolução da implantação e atividades recentes em uma leitura executiva.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
+            <details><summary><i data-lucide="network"></i><strong>Rede de franquias</strong><span>Gerencie unidades, implantação e operação do dia a dia.</span><em>Unidades · Jornada de implantação · Credenciamento · Operação</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Acompanhe cada unidade desde o cadastro e o roadmap até a inauguração, com responsáveis e evidências.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
+            <details><summary><i data-lucide="building-2"></i><strong>Gestão corporativa</strong><span>Administre áreas essenciais da franqueadora.</span><em>Financeiro · Departamento Pessoal · Recursos Humanos · Projetos · Qualidade</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Conecte pessoas, recursos, projetos e resultados ao mesmo contexto de unidade e período.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
+            <details><summary><i data-lucide="shield-check"></i><strong>Governança</strong><span>Padronize, formalize e assegure conformidade.</span><em>Documentos · Contratos · Compliance</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Centralize documentos, vigências, aprovações, riscos e histórico para uma operação auditável.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
+            <details><summary><i data-lucide="messages-square"></i><strong>Relacionamento</strong><span>Comunique, capacite e ofereça suporte com eficiência.</span><em>Comunicação · Treinamentos · Chamados e suporte</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Publique orientações, acompanhe ciência, disponibilize treinamentos e trate chamados por prioridade.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
+            <details><summary><i data-lucide="settings"></i><strong>Administração</strong><span>Ajuste os controles da plataforma de acordo com a operação.</span><em>Configurações · Usuários · Permissões · Auditoria</em><i data-lucide="chevron-down"></i></summary><div class="lp-accordion-content"><p>Gerencie usuários, perfis, escopos de franquia, parâmetros e logs em um único ambiente.</p><button data-open-login type="button">Explorar no sistema<i data-lucide="arrow-right"></i></button></div></details>
           </div>
         </section>
 
-        <section id="operacao" class="landing-operation">
-          <div class="operation-preview" aria-label="Visão geral do painel 33Doctor">
-            <header><span class="mini-logo">33</span><strong>Painel da rede</strong><small>Visão geral</small></header>
-            <div class="operation-metrics">
-              <article><span>Franquias</span><strong>12</strong><small>rede ativa</small></article>
-              <article><span>Progresso médio</span><strong>74%</strong><small>implantação</small></article>
-              <article><span>Pendências</span><strong>18</strong><small>ação necessária</small></article>
-            </div>
-            <div class="operation-chart">
-              <div><span>Unidade Centro</span><i><b style="--progress:84%"></b></i><strong>84%</strong></div>
-              <div><span>Unidade Norte</span><i><b style="--progress:67%"></b></i><strong>67%</strong></div>
-              <div><span>Unidade Sul</span><i><b style="--progress:51%"></b></i><strong>51%</strong></div>
-            </div>
+        <section class="lp-portals">
+          <div class="lp-section-title centered inverse"><h2>Uma plataforma. <strong>Duas experiências</strong> de acesso.</h2></div>
+          <div class="lp-portal-grid">
+            <article data-lp-reveal><header><i data-lucide="badge-check"></i><div><strong>Portal da Franqueadora</strong><p>Visão consolidada da rede, governança, padronização e acompanhamento das unidades.</p></div></header><div class="lp-portal-screen lp-portal-screen--admin"><aside><span class="lp-app-brand"><b>+</b>33doctor</span><strong>Página inicial</strong><i>Painel executivo</i><i>Indicadores</i><i>Unidades</i><i>Implantação</i></aside><main><header><div><h3>Página inicial</h3><small>Cockpit operacional da rede</small></div><span>AD</span></header><div class="lp-portal-kpis"><b>16<small>unidades</small></b><b>14<small>em implantação</small></b><b>408<small>pendências</small></b></div><section><div><strong>Acompanhamento das unidades</strong><p><span>Unidade Centro/SP</span><em>Em implantação</em></p><p><span>Unidade Norte/PA</span><em class="ready">Pronta</em></p><p><span>Unidade Sul/MG</span><em>Em implantação</em></p></div><aside><strong>Prioridades</strong><i>Documentação pendente</i><i>Aprovação necessária</i><i>Marco de implantação</i></aside></section></main></div></article>
+            <article data-lp-reveal><header><i data-lucide="store"></i><div><strong>Portal do Franqueado</strong><p>Rotina da unidade, pendências, documentos, indicadores e suporte da franqueadora.</p></div></header><div class="lp-portal-screen lp-portal-screen--unit"><aside><span class="lp-app-brand"><b>+</b>33doctor</span><strong>Minha unidade</strong><i>Implantação</i><i>Pendências</i><i>Documentos</i><i>Credenciamento</i></aside><main><header><div><h3>Minha unidade</h3><small>Unidade Centro · SP</small></div><span>UF</span></header><div class="lp-unit-hero"><div><small>Implantação da unidade</small><strong>Pronta para inauguração</strong><span>Próximo marco: treinamento da equipe</span></div><b>92%<small>concluído</small></b></div><div class="lp-unit-kpis"><b>32<small>etapas concluídas</small></b><b>3<small>pendências abertas</small></b><b>88%<small>documentação</small></b></div><section class="lp-unit-list"><strong>O que precisa da sua atenção</strong><p><i></i><span>Enviar documento societário</span><em>Hoje</em></p><p><i></i><span>Confirmar treinamento</span><em>2 dias</em></p><p><i></i><span>Validar checklist final</span><em>3 dias</em></p></section></main></div></article>
           </div>
-          <div class="operation-copy">
-            <span>Da abertura à rotina</span>
-            <h2>Você sabe o que fazer, quando fazer e quem precisa agir.</h2>
-            <p>O 33Doctor APP transforma as orientações da franqueadora em uma rotina clara para sua unidade, sinalizando riscos e mantendo responsáveis, prazos e documentos no mesmo fluxo.</p>
-            <ol>
-              <li><b>1</b><span><strong>Acompanhe</strong><small>Veja o andamento de cada franquia.</small></span></li>
-              <li><b>2</b><span><strong>Direcione</strong><small>Defina responsáveis e prioridades.</small></span></li>
-              <li><b>3</b><span><strong>Inaugure</strong><small>Conclua as etapas e prepare a unidade para operar.</small></span></li>
-            </ol>
+          <button class="lp-button lp-button-outline" data-open-login type="button"><i data-lucide="workflow"></i>Escolher portal de acesso</button>
+        </section>
+
+        <section id="como-funciona" class="lp-process lp-section">
+          <div class="lp-section-title centered"><h2>Da implantação à <strong>melhoria contínua.</strong></h2></div>
+          <div class="lp-process-row">
+            <article><b>01</b><i data-lucide="crosshair"></i><strong>Organize</strong><p>Centralize informações e responsáveis.</p></article>
+            <article><b>02</b><i data-lucide="calendar-check"></i><strong>Acompanhe</strong><p>Monitore etapas, prazos e pendências.</p></article>
+            <article><b>03</b><i data-lucide="chart-no-axes-combined"></i><strong>Analise</strong><p>Consulte indicadores e evidências.</p></article>
+            <article><b>04</b><i data-lucide="rocket"></i><strong>Evolua</strong><p>Transforme dados em planos de ação.</p></article>
           </div>
         </section>
 
-        <section class="landing-security">
-          <div><span>Um ambiente para cada franqueado</span><strong>Sua unidade, seus dados e sua equipe.</strong></div>
-          <p>Perfis por função, acessos definidos pela franqueadora e visualização restrita às informações da sua operação.</p>
+        <section class="lp-control">
+          <div class="lp-control-photo" role="img" aria-label="Ambiente executivo de operações 33Doctor"></div>
+          <div class="lp-control-copy"><h2>Controle sem perder<br />a <strong>simplicidade.</strong></h2><ul><li><i data-lucide="circle-check"></i>Alertas e prioridades em tempo real</li><li><i data-lucide="circle-check"></i>Documentos e evidências centralizados</li><li><i data-lucide="circle-check"></i>Histórico de ações e responsabilidades</li><li><i data-lucide="circle-check"></i>Acompanhamento da implantação das unidades</li><li><i data-lucide="circle-check"></i>Comunicação e suporte em um só ambiente</li></ul></div>
         </section>
 
-        <section class="landing-cta">
-          <span>33Doctor APP</span>
-          <h2>Entre no ambiente da sua franquia e conduza a operação com mais segurança.</h2>
-          <button class="hero-primary" data-open-login type="button">Acessar minha conta</button>
+        <section id="seguranca" class="lp-security lp-section">
+          <div class="lp-section-title centered"><h2>Informações <strong>protegidas</strong> em todas as etapas.</h2></div>
+          <div class="lp-security-grid">
+            <article><i data-lucide="shield-check"></i><div><strong>Segurança e LGPD</strong><p>Dados protegidos com criptografia, acesso controlado e conformidade.</p></div></article>
+            <article><i data-lucide="lock-keyhole"></i><div><strong>Controle de acessos e permissões</strong><p>Perfis e permissões personalizados para cada função.</p></div></article>
+            <article><i data-lucide="file-search"></i><div><strong>Rastreabilidade e auditoria</strong><p>Histórico completo de ações para transparência e conformidade.</p></div></article>
+          </div>
         </section>
+
+        <section id="suporte" class="lp-support">
+          <div class="lp-support-copy"><h2>Tecnologia com <strong>suporte</strong><br />em cada etapa.</h2><p>Conte com uma equipe especializada para apoiar franqueadora e franqueados em todas as fases da operação, da implantação à evolução contínua.</p><div class="lp-actions"><a class="lp-button lp-button-primary" href="mailto:suporte@33doctor.com.br"><i data-lucide="headphones"></i>Falar com o suporte</a><a class="lp-button lp-button-light" href="#solucoes"><i data-lucide="messages-square"></i>Central de ajuda</a></div></div>
+          <div class="lp-support-photo" role="img" aria-label="Equipe de suporte da plataforma 33Doctor"></div>
+        </section>
+
+        <section class="lp-final-cta"><div><h2>Sua franquia no controle.<br />Sua operação <strong>pronta para crescer.</strong></h2></div><div class="lp-actions"><button class="lp-button lp-button-primary" data-open-login type="button"><i data-lucide="lock-keyhole"></i>Acessar sistema</button><a class="lp-button lp-button-outline" href="#plataforma"><i data-lucide="circle-play"></i>Conhecer a plataforma</a></div></section>
       </main>
 
-      <footer class="landing-footer">
-        <div><span class="brand-platform-lockup footer-brand-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span><p>Estrutura e acompanhamento para cada unidade operar o propósito 33Doctor com qualidade.</p></div>
-        <div class="footer-nexa"><span>Desenvolvido por</span><img src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" /></div>
+      <footer class="lp-footer">
+        <div class="lp-footer-brand"><span class="lp-logo-crop light"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><strong>Cuidar de pessoas.<br />Transformar vidas.</strong></div>
+        <div><strong>Plataforma</strong><a href="#plataforma">Visão geral</a><a href="#solucoes">Soluções</a><a href="#como-funciona">Como funciona</a></div>
+        <div><strong>Acesso</strong><button data-open-login type="button">Portal da Franqueadora</button><button data-open-login type="button">Portal do Franqueado</button></div>
+        <div><strong>Suporte</strong><a href="#suporte">Central de ajuda</a><a href="mailto:suporte@33doctor.com.br">Fale conosco</a></div>
+        <div><strong>Legal</strong><a href="#seguranca">Política de Privacidade</a><a href="#seguranca">LGPD</a></div>
+        <div class="lp-footer-bottom"><span>© 2026 33Doctor</span><span>Desenvolvido pela Nexa</span></div>
       </footer>
     </section>
 
     <section id="login-screen" class="login-screen"></section>
 
-    <div id="app-shell" class="app-shell" hidden>
-      <aside class="sidebar">
+    <div id="app-shell" class="app-shell reference-shell" hidden>
+      <aside class="sidebar reference-sidebar">
         <div class="brand product-brand" aria-label="33Doctor APP, desenvolvido pela Nexa">
           <span class="brand-platform-lockup app-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
         </div>
         <nav class="nav" aria-label="Navegação principal">
-          <span class="nav-section-label">Visão geral</span>
+          <span class="nav-section-label">Principal</span>
           <button class="nav-item active" data-view="dashboard" type="button"><i data-lucide="house"></i><span>Página inicial</span></button>
-          <button class="nav-item" data-view="franchises" type="button"><i data-lucide="building-2"></i><span>Franquias</span></button>
-          <button class="nav-item" data-view="implantation" type="button"><i data-lucide="route"></i><span>Momento de Implantação</span></button>
-          <span class="nav-section-label">Operação</span>
-          <button class="nav-item" data-view="credentialing" type="button"><i data-lucide="badge-check"></i><span>Credenciamento</span></button>
-          <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button"><i data-lucide="users"></i><span>RH</span><small data-module-state="hr">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button"><i data-lucide="contact-round"></i><span>Departamento Pessoal</span><small data-module-state="dp">Bloqueado</small></button>
-          <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button"><i data-lucide="wallet-cards"></i><span>Financeiro</span><small data-module-state="finance">Bloqueado</small></button>
-          <button class="nav-item" data-view="projects" type="button"><i data-lucide="folder-kanban"></i><span>Projetos</span></button>
-          <button class="nav-item" data-view="quality" type="button"><i data-lucide="sparkles"></i><span>Qualidade</span></button>
-          <button class="nav-item" data-view="documentation" type="button"><i data-lucide="files"></i><span>Documentação</span></button>
-          <button class="nav-item" data-view="communication" type="button"><i data-lucide="messages-square"></i><span>Comunicação</span></button>
-          <button class="nav-item" data-view="support" type="button"><i data-lucide="headset"></i><span>Suporte</span></button>
-          <span class="nav-section-label" data-platform-only>Sistema</span>
-          <button class="nav-item" data-view="settings" data-platform-only type="button"><i data-lucide="shield-check"></i><span>Configurações</span></button>
+          <button class="nav-item" data-view="executive" type="button"><i data-lucide="layout-dashboard"></i><span>Painel executivo</span></button>
+          <button class="nav-item" data-view="indicators" type="button"><i data-lucide="chart-no-axes-combined"></i><span>Indicadores</span></button>
+          <span class="nav-section-label">Módulos</span>
+          <div class="nav-folder open" data-nav-folder="franchises">
+            <button class="nav-folder-trigger" type="button" aria-expanded="true"><i data-lucide="network"></i><span>Rede de Franquias</span><i class="folder-chevron" data-lucide="chevron-down"></i></button>
+            <div class="nav-children">
+              <button class="nav-item" data-view="franchises" type="button"><i data-lucide="building-2"></i><span>Unidades</span></button>
+              <button class="nav-item" data-view="implantation" type="button"><i data-lucide="route"></i><span>Jornada de implantação</span></button>
+              <button class="nav-item" data-view="credentialing" type="button"><i data-lucide="badge-check"></i><span>Credenciamento</span></button>
+              <button class="nav-item" data-view="operation" type="button"><i data-lucide="clipboard-check"></i><span>Operação</span></button>
+            </div>
+          </div>
+          <div class="nav-folder open" data-nav-folder="corporate">
+            <button class="nav-folder-trigger" type="button" aria-expanded="true"><i data-lucide="briefcase-business"></i><span>Gestão Corporativa</span><i class="folder-chevron" data-lucide="chevron-down"></i></button>
+            <div class="nav-children">
+              <button class="nav-item module-nav" data-view="finance" data-module-nav="finance" type="button"><i data-lucide="wallet-cards"></i><span>Financeiro</span><small data-module-state="finance">Bloqueado</small></button>
+              <button class="nav-item module-nav" data-view="dp" data-module-nav="dp" type="button"><i data-lucide="contact-round"></i><span>Departamento Pessoal</span><small data-module-state="dp">Bloqueado</small></button>
+              <button class="nav-item module-nav" data-view="hr" data-module-nav="hr" type="button"><i data-lucide="users"></i><span>Recursos Humanos</span><small data-module-state="hr">Bloqueado</small></button>
+              <button class="nav-item" data-view="projects" type="button"><i data-lucide="folder-kanban"></i><span>Projetos</span></button>
+              <button class="nav-item" data-view="quality" type="button"><i data-lucide="sparkles"></i><span>Qualidade e Processos</span></button>
+            </div>
+          </div>
+          <div class="nav-folder open" data-nav-folder="governance">
+            <button class="nav-folder-trigger" type="button" aria-expanded="true"><i data-lucide="shield-check"></i><span>Governança</span><i class="folder-chevron" data-lucide="chevron-down"></i></button>
+            <div class="nav-children">
+              <button class="nav-item" data-view="documentation" type="button"><i data-lucide="files"></i><span>Documentos</span></button>
+              <button class="nav-item" data-view="contracts" type="button"><i data-lucide="file-signature"></i><span>Contratos</span></button>
+              <button class="nav-item" data-view="compliance" type="button"><i data-lucide="badge-check"></i><span>Compliance</span></button>
+            </div>
+          </div>
+          <div class="nav-folder open" data-nav-folder="relationship">
+            <button class="nav-folder-trigger" type="button" aria-expanded="true"><i data-lucide="messages-square"></i><span>Relacionamento</span><i class="folder-chevron" data-lucide="chevron-down"></i></button>
+            <div class="nav-children">
+              <button class="nav-item" data-view="communication" type="button"><i data-lucide="message-circle-more"></i><span>Comunicação</span></button>
+              <button class="nav-item" data-view="training" type="button"><i data-lucide="graduation-cap"></i><span>Treinamentos</span></button>
+              <button class="nav-item" data-view="support" type="button"><i data-lucide="headset"></i><span>Chamados e suporte</span></button>
+            </div>
+          </div>
+          <button class="nav-item nav-settings-item" data-view="settings" data-platform-only type="button"><i data-lucide="settings"></i><span>Configurações</span></button>
         </nav>
-        <div class="sidebar-support-card">
-          <span><i data-lucide="headset"></i></span>
-          <strong>Suporte 33 Doctor<small>Precisa de ajuda?<br />Fale com nossa equipe.</small></strong>
-          <button data-quick-view="support" type="button"><i data-lucide="phone"></i>Abrir chamado</button>
-        </div>
-        <div class="profile-control sidebar-profile">
-          <button id="profile-toggle" class="profile-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
-            <span id="profile-avatar" class="profile-avatar">NX</span>
-            <span>
-              <strong id="profile-chip-name">Usuário 33Doctor</strong>
-              <small>Editar perfil</small>
-            </span>
-          </button>
-          <form id="profile-menu" class="profile-menu" hidden>
-            <div class="profile-menu-head">
-              <span id="profile-avatar-preview" class="profile-avatar large">NX</span>
-              <div>
-                <strong>Perfil do usuário</strong>
-                <small>Nome e foto usados nesta sessão.</small>
-              </div>
-            </div>
-            <label>
-              <span>Nome</span>
-              <input id="profile-name-input" type="text" placeholder="Seu nome" />
-            </label>
-            <label>
-              <span>Foto</span>
-              <input id="profile-photo-input" type="file" accept="image/*" />
-            </label>
-            <div class="profile-menu-actions">
-              <button id="profile-save" class="primary-button" type="button">Salvar perfil</button>
-            </div>
-          </form>
-          <button id="logout-button" class="sidebar-logout" type="button">Sair do sistema</button>
-        </div>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
-          <div class="topbar-copy">
-            <div class="topbar-user">
-              <h1>Olá, <span id="profile-name-display">Usuário 33Doctor</span>!</h1>
-            </div>
-            <p>Bem-vindo à 33Doctor. Aqui você acompanha toda a rede em um só lugar.</p>
-            <span id="view-title" hidden>Dashboard</span>
+          <button id="mobile-nav-toggle" class="mobile-nav-toggle icon-button" type="button" aria-label="Abrir menu principal" aria-expanded="false"><i data-lucide="menu"></i></button>
+          <div class="portal-switcher" role="group" aria-label="Portal de acesso">
+            <button class="active" data-portal-mode="franchisor" type="button" title="Portal da Franqueadora"><i data-lucide="building-2"></i>Franqueadora</button>
+            <button data-portal-mode="franchisee" type="button" title="Portal do Franqueado"><i data-lucide="store"></i>Franqueado</button>
           </div>
           <div class="top-actions">
-            <label class="search-box compact-search">
+            <label class="search-box reference-search">
               <i data-lucide="search"></i>
-              <input id="global-search" type="search" placeholder="Buscar na plataforma" />
+              <input id="global-search" type="search" placeholder="Buscar no sistema..." />
             </label>
             <div class="top-action-buttons">
               <button id="notification-toggle" class="icon-button notification-button" type="button" aria-label="Abrir notificações" aria-expanded="false" title="Notificações"><i data-lucide="bell"></i><span id="notification-count">0</span></button>
-              <button class="date-control" type="button"><i data-lucide="calendar-days"></i><span><strong id="topbar-weekday">Hoje</strong><small id="topbar-date">Visão da rede</small></span><i data-lucide="chevron-down"></i></button>
+              <div class="profile-control topbar-profile">
+                <button id="profile-toggle" class="top-profile-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+                  <span id="topbar-avatar" class="profile-avatar">33</span>
+                  <span class="top-profile-copy"><strong id="profile-name-display">Usuário 33Doctor</strong><small>Admin da rede</small></span>
+                  <i data-lucide="chevron-down"></i>
+                </button>
+                <form id="profile-menu" class="profile-menu" hidden>
+                  <div class="profile-menu-head">
+                    <span id="profile-avatar-preview" class="profile-avatar large">NX</span>
+                    <div><strong id="profile-chip-name">Usuário 33Doctor</strong><small>Perfil do usuário</small></div>
+                  </div>
+                  <span id="profile-avatar" class="profile-avatar profile-avatar-hidden">NX</span>
+                  <label><span>Nome</span><input id="profile-name-input" type="text" placeholder="Seu nome" /></label>
+                  <label><span>Foto</span><input id="profile-photo-input" type="file" accept="image/*" /></label>
+                  <div class="profile-menu-actions"><button id="profile-save" class="primary-button" type="button">Salvar perfil</button></div>
+                  <button id="logout-button" class="profile-logout" type="button"><i data-lucide="log-out"></i>Sair do sistema</button>
+                </form>
+              </div>
             </div>
           </div>
+          <span id="view-title" hidden>Dashboard</span>
+          <span id="topbar-weekday" hidden>Hoje</span>
+          <span id="topbar-date" hidden>Visão da rede</span>
         </header>
 
         <section id="notification-bar" class="notification-bar" aria-label="Notificações recentes"></section>
@@ -246,6 +274,6 @@
     <script src="./assets/vendor/lucide.min.js"></script>
     <script src="./supabase-config.js"></script>
     <script src="./data.js"></script>
-    <script src="./app.js?v=20260811a"></script>
+    <script src="./app.js?v=20260901a"></script>
   </body>
 </html>

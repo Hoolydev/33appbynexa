@@ -3,6 +3,12 @@
   "outputDirectory": ".",
   "cleanUrls": true,
   "trailingSlash": false,
+  "crons": [
+    {
+      "path": "/api/jobs",
+      "schedule": "0 11 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -43,6 +49,15 @@
         {
           "key": "Cache-Control",
           "value": "no-store, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/(index.html|app.js|styles.css|landing-v2.css)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0, must-revalidate"
         }
       ]
     }

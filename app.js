@@ -38,6 +38,19 @@ const state = {
   moduleLoading: {},
   moduleEditing: {},
   notificationReadIds: readStorage("notificationReadIds", []),
+  approvedTabs: readStorage("approvedModuleTabs", {}),
+  approvedFilters: readStorage("approvedModuleFilters", {}),
+  approvedFiltersVisible: readStorage("approvedFiltersVisible", {}),
+  approvedViewModes: readStorage("approvedViewModes", { franchises: "cards" }),
+  navFolders: readStorage("navFolders", { franchises: true, corporate: true, governance: true, relationship: true }),
+  portalMode: readStorage("portalMode", "franchisor"),
+  approvedModal: null,
+  approvedUnitTab: "Resumo",
+  documentFolders: readStorage("documentFolders", [
+    { id: "folder-corporate", name: "Biblioteca corporativa", parentId: "", area: "Corporativo" },
+    { id: "folder-operations", name: "Operações", parentId: "folder-corporate", area: "Operações" },
+    { id: "folder-pops", name: "POPs e procedimentos", parentId: "folder-operations", area: "Operações" },
+  ]),
   loading: false,
 };
 
@@ -45,6 +58,7 @@ const statusOptions = ["Concluído", "Em Andamento", "Pendente", "Sem status"];
 const removedModuleCodes = new Set(["commercial", "marketing", "legal", "administrative", "bi", "accounting"]);
 const storageReferencePrefix = "storage:";
 const localFileReferencePrefix = "local-file:";
+const accreditationContractsPrefix = "accreditation-contracts:";
 
 const app = document.querySelector("#app");
 const appShell = document.querySelector("#app-shell");
@@ -85,6 +99,46 @@ landingScreen.addEventListener("click", (event) => {
   }
 });
 
+function animateLandingCounters(container) {
+  container.querySelectorAll("[data-lp-count]").forEach((element) => {
+    if (element.dataset.lpCountAnimated === "true") return;
+    element.dataset.lpCountAnimated = "true";
+    const target = Number(element.dataset.lpCount || 0);
+    const prefix = element.dataset.lpPrefix || "";
+    const suffix = element.dataset.lpSuffix || "";
+    const startedAt = performance.now();
+    const duration = Math.min(1200, 700 + target * 1.2);
+    const draw = (now) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      element.textContent = `${prefix}${Math.round(target * eased)}${suffix}`;
+      if (progress < 1) requestAnimationFrame(draw);
+    };
+    element.textContent = `${prefix}0${suffix}`;
+    requestAnimationFrame(draw);
+  });
+}
+
+function initializeLandingMotion() {
+  const revealItems = landingScreen.querySelectorAll("[data-lp-reveal]");
+  if (!revealItems.length) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
+    revealItems.forEach((item) => item.classList.add("is-visible"));
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add("is-visible");
+      animateLandingCounters(entry.target);
+      observer.unobserve(entry.target);
+    });
+  }, { threshold: 0.18, rootMargin: "0px 0px -8% 0px" });
+  revealItems.forEach((item) => observer.observe(item));
+}
+
+initializeLandingMotion();
+
 landingScreen.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-job-application-form]");
   if (!form) return;
@@ -95,12 +149,34 @@ landingScreen.addEventListener("submit", async (event) => {
 loginScreen.addEventListener("click", (event) => {
   if (event.target.closest("[data-close-login]")) {
     showLanding();
+    return;
+  }
+
+  const passwordToggle = event.target.closest("[data-toggle-password]");
+  if (passwordToggle) {
+    const input = loginScreen.querySelector("input[name='password']");
+    if (!input) return;
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    passwordToggle.setAttribute("aria-label", showing ? "Mostrar senha" : "Ocultar senha");
+    passwordToggle.innerHTML = `<i data-lucide="${showing ? "eye" : "eye-off"}"></i>`;
+    refreshIcons();
+    return;
+  }
+
+  const forgotButton = event.target.closest("[data-forgot-password]");
+  if (forgotButton) {
+    requestPasswordRecovery(loginScreen.querySelector("input[name='email']")?.value || "");
   }
 });
 
 loginScreen.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
+  if (form.matches("[data-reset-password-form]")) {
+    await updateRecoveredPassword(form);
+    return;
+  }
   if (!form.matches("[data-login-form]")) return;
   await login(form);
 });
@@ -111,11 +187,51 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     if (state.view === "franchises") state.franchiseWorkspaceUnitId = "";
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
+    appShell.classList.remove("mobile-nav-open");
+    document.querySelector("#mobile-nav-toggle")?.setAttribute("aria-expanded", "false");
     render();
     if (moduleDefinitions[state.view]) {
       await loadModuleRecords(state.view);
       render();
     }
+  });
+});
+
+const mobileNavToggle = document.querySelector("#mobile-nav-toggle");
+mobileNavToggle?.addEventListener("click", () => {
+  const open = appShell.classList.toggle("mobile-nav-open");
+  mobileNavToggle.setAttribute("aria-expanded", String(open));
+  mobileNavToggle.setAttribute("aria-label", open ? "Fechar menu principal" : "Abrir menu principal");
+});
+
+document.querySelectorAll("[data-nav-folder]").forEach((folder) => {
+  const key = folder.dataset.navFolder;
+  const trigger = folder.querySelector(".nav-folder-trigger");
+  const open = state.navFolders[key] !== false;
+  folder.classList.toggle("open", open);
+  trigger?.setAttribute("aria-expanded", String(open));
+  trigger?.addEventListener("click", () => {
+    const nextOpen = !folder.classList.contains("open");
+    folder.classList.toggle("open", nextOpen);
+    trigger.setAttribute("aria-expanded", String(nextOpen));
+    state.navFolders[key] = nextOpen;
+    writeStorage("navFolders", state.navFolders);
+  });
+});
+
+document.querySelectorAll("[data-portal-mode]").forEach((button) => {
+  button.classList.toggle("active", button.dataset.portalMode === state.portalMode);
+  button.addEventListener("click", () => {
+    if (button.dataset.portalMode === "franchisor" && !isPlatformAdmin()) return;
+    state.portalMode = button.dataset.portalMode;
+    writeStorage("portalMode", state.portalMode);
+    state.view = "dashboard";
+    state.dashboardUnit = "all";
+    state.accreditationUnit = "all";
+    state.franchiseWorkspaceUnitId = "";
+    state.approvedModal = null;
+    activateNav("dashboard");
+    render();
   });
 });
 
@@ -141,7 +257,12 @@ notificationToggle.addEventListener("click", () => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!event.target.closest(".profile-control")) {
+  const quickProfile = event.target.closest("[data-quick-profile]");
+  if (quickProfile) {
+    const isOpen = !profileMenu.hidden;
+    profileMenu.hidden = isOpen;
+    profileToggle.setAttribute("aria-expanded", String(!isOpen));
+  } else if (!event.target.closest(".profile-control")) {
     profileMenu.hidden = true;
     profileToggle.setAttribute("aria-expanded", "false");
   }
@@ -207,6 +328,12 @@ app.addEventListener("change", async (event) => {
   }
   if (target.matches("[data-accreditation-status]")) {
     target.className = `${statusClass(target.value)} manual-status-select`;
+  }
+  if (target.matches("[data-credential-stage-select]")) {
+    await moveCredentialPipelineCard({
+      unitId: target.dataset.unitId,
+      procedureId: target.dataset.procedureId,
+    }, target.value);
   }
   if (target.matches('[data-operational-field="status"]')) {
     target.className = `${statusClass(target.value)} manual-status-select`;
@@ -275,7 +402,15 @@ app.addEventListener("click", (event) => {
 
   const selectUnit = event.target.closest("[data-select-unit]");
   if (selectUnit) {
-    state.franchiseWorkspaceUnitId = selectUnit.dataset.selectUnit;
+    state.approvedUnitTab = "Resumo";
+    state.approvedModal = { type: "unit", unitId: selectUnit.dataset.selectUnit };
+    render();
+  }
+
+  const openUnitWorkspace = event.target.closest("[data-open-unit-workspace]");
+  if (openUnitWorkspace) {
+    state.approvedModal = null;
+    state.franchiseWorkspaceUnitId = openUnitWorkspace.dataset.openUnitWorkspace;
     state.view = "franchises";
     activateNav("franchises");
     render();
@@ -337,6 +472,16 @@ app.addEventListener("click", (event) => {
   const removeAttachment = event.target.closest("[data-remove-attachment]");
   if (removeAttachment) {
     removeAttachmentFile(removeAttachment);
+  }
+
+  const addAccreditationContract = event.target.closest("[data-add-accreditation-contract]");
+  if (addAccreditationContract) {
+    addAccreditationContractEntry(addAccreditationContract);
+  }
+
+  const removeAccreditationContract = event.target.closest("[data-remove-accreditation-contract]");
+  if (removeAccreditationContract) {
+    removeAccreditationContractEntry(removeAccreditationContract);
   }
 
   const saveAccreditations = event.target.closest("[data-save-accreditations]");
@@ -414,16 +559,280 @@ app.addEventListener("click", (event) => {
 
   const deleteModuleRecordButton = event.target.closest("[data-delete-module-record]");
   if (deleteModuleRecordButton) deleteModuleRecord(deleteModuleRecordButton);
+
+  const approvedTab = event.target.closest("[data-approved-tab]");
+  if (approvedTab) {
+    state.approvedTabs[approvedTab.dataset.approvedTab] = approvedTab.dataset.approvedTabValue;
+    if (approvedTab.dataset.approvedTab === "settings" && approvedTab.dataset.approvedTabValue === "Usuários") state.adminTab = "users";
+    writeStorage("approvedModuleTabs", state.approvedTabs);
+    render();
+  }
+
+  const journeyStage = event.target.closest("[data-journey-stage]");
+  if (journeyStage) {
+    state.approvedFilters.implantation ||= {};
+    state.approvedFilters.implantation.stage = journeyStage.dataset.journeyStage;
+    state.approvedTabs.implantation = "Etapas";
+    writeStorage("approvedModuleFilters", state.approvedFilters);
+    writeStorage("approvedModuleTabs", state.approvedTabs);
+    render();
+  }
+
+  const toggleFilters = event.target.closest("[data-toggle-filters]");
+  if (toggleFilters) {
+    const moduleCode = toggleFilters.dataset.toggleFilters;
+    state.approvedFiltersVisible[moduleCode] = !state.approvedFiltersVisible[moduleCode];
+    writeStorage("approvedFiltersVisible", state.approvedFiltersVisible);
+    render();
+  }
+
+  const approvedMetric = event.target.closest("[data-approved-metric]");
+  if (approvedMetric) {
+    const moduleCode = approvedMetric.dataset.approvedMetric;
+    const tab = approvedMetric.dataset.metricTab;
+    if (tab) state.approvedTabs[moduleCode] = tab;
+    else state.approvedFiltersVisible[moduleCode] = true;
+    writeStorage("approvedModuleTabs", state.approvedTabs);
+    writeStorage("approvedFiltersVisible", state.approvedFiltersVisible);
+    render();
+  }
+
+  const executiveWorkflowFilter = event.target.closest("[data-executive-workflow-status]");
+  if (executiveWorkflowFilter) {
+    const selectedStatus = executiveWorkflowFilter.dataset.executiveWorkflowStatus;
+    state.approvedFilters.executive ||= {};
+    state.approvedFilters.executive.workflowStatus = state.approvedFilters.executive.workflowStatus === selectedStatus ? "" : selectedStatus;
+    writeStorage("approvedModuleFilters", state.approvedFilters);
+    render();
+  }
+
+  const indicatorStatusFilter = event.target.closest("[data-indicator-status]");
+  if (indicatorStatusFilter) {
+    const selectedStatus = indicatorStatusFilter.dataset.indicatorStatus;
+    state.approvedFilters.indicators ||= {};
+    state.approvedFilters.indicators.workflowStatus = state.approvedFilters.indicators.workflowStatus === selectedStatus ? "" : selectedStatus;
+    writeStorage("approvedModuleFilters", state.approvedFilters);
+    render();
+  }
+
+  const indicatorCatalog = event.target.closest("[data-indicator-catalog]");
+  if (indicatorCatalog) {
+    state.approvedTabs.indicators = "Visão geral";
+    state.approvedFiltersVisible.indicators = true;
+    writeStorage("approvedModuleTabs", state.approvedTabs);
+    writeStorage("approvedFiltersVisible", state.approvedFiltersVisible);
+    render();
+  }
+
+  const approvedMode = event.target.closest("[data-approved-mode]");
+  if (approvedMode) {
+    state.approvedViewModes[approvedMode.dataset.approvedMode] = approvedMode.dataset.approvedModeValue;
+    writeStorage("approvedViewModes", state.approvedViewModes);
+    render();
+  }
+
+  const approvedExport = event.target.closest("[data-approved-export]");
+  if (approvedExport) exportApprovedView(approvedExport.dataset.approvedExport);
+
+  const approvedCreate = event.target.closest("[data-approved-create]");
+  if (approvedCreate) {
+    const contextualUnitId = state.approvedModal?.type === "unit" ? state.approvedModal.unitId : "";
+    const requestedModule = approvedCreate.dataset.approvedCreate;
+    if (approvedCreate.dataset.approvedCreate === "settings") {
+      state.approvedTabs.settings = "Usuários";
+      state.adminTab = "users";
+      writeStorage("approvedModuleTabs", state.approvedTabs);
+    } else if (approvedCreate.dataset.approvedCreate === "franchises") {
+      state.approvedModal = { type: "new-unit", moduleCode: "franchises", step: 1, draft: {} };
+    } else {
+      const draft = contextualUnitId ? { unitId: contextualUnitId } : {};
+      if (requestedModule === "executive") {
+        const activeExecutiveArea = approvedCreate.dataset.executiveCategory || state.approvedTabs.executive;
+        draft.category = activeExecutiveArea && activeExecutiveArea !== "Visão da rede" ? activeExecutiveArea : "Expansão";
+      }
+      if (requestedModule === "indicators") {
+        const activeIndicatorArea = state.approvedTabs.indicators;
+        if (activeIndicatorArea && activeIndicatorArea !== "Visão geral") draft.category = activeIndicatorArea;
+      }
+      state.approvedModal = { type: "record", moduleCode: requestedModule, step: 1, draft };
+    }
+    render();
+  }
+
+  const approvedEdit = event.target.closest("[data-approved-edit]");
+  if (approvedEdit) {
+    const record = allOperationalRecords().find((item) =>
+      item.unitId === approvedEdit.dataset.unitId
+      && item.recordType === approvedEdit.dataset.recordType
+      && item.recordId === approvedEdit.dataset.recordId
+      && !item.hidden
+    );
+    if (record) {
+      state.approvedModal = { type: "record", moduleCode: approvedEdit.dataset.approvedEdit, record };
+      render();
+    }
+  }
+
+  const approvedPreview = event.target.closest("[data-approved-preview]");
+  if (approvedPreview) {
+    const moduleCode = approvedPreview.dataset.approvedPreview;
+    state.approvedModal = {
+      type: "record",
+      moduleCode,
+      record: {
+        unitId: approvedPreview.dataset.unitId || state.selectedUnitId,
+        recordType: approvedPreview.dataset.recordType || `department:${moduleCode}:registro`,
+        title: approvedPreview.dataset.title || "Registro operacional",
+        status: approvedPreview.dataset.status || "Pendente",
+        owner: approvedPreview.dataset.owner || "Equipe responsável",
+        category: approvedPreview.dataset.category || "Operação",
+        deadline: approvedPreview.dataset.deadline || "",
+        notes: approvedPreview.dataset.notes || "",
+      },
+    };
+    render();
+  }
+
+  const approvedDelete = event.target.closest("[data-approved-delete]");
+  if (approvedDelete) deleteOperationalRecord(approvedDelete);
+
+  const approvedQuick = event.target.closest("[data-approved-quick]");
+  if (approvedQuick) handleApprovedQuickAction(approvedQuick);
+
+  if (event.target.closest("[data-approved-modal-close]")) {
+    state.approvedModal = null;
+    render();
+  }
+
+  const unitDetailTab = event.target.closest("[data-unit-detail-tab]");
+  if (unitDetailTab) {
+    state.approvedUnitTab = unitDetailTab.dataset.unitDetailTab;
+    render();
+  }
+
+  const wizardMove = event.target.closest("[data-approved-wizard-move]");
+  if (wizardMove) moveApprovedWizard(wizardMove);
+
+  const wizardDraft = event.target.closest("[data-approved-wizard-draft]");
+  if (wizardDraft) saveApprovedWizardDraft(wizardDraft);
+
+  const addFolder = event.target.closest("[data-add-document-folder]");
+  if (addFolder) {
+    state.approvedModal = { type: "folder", moduleCode: "documentation", parentId: addFolder.dataset.parentId || "" };
+    render();
+  }
+});
+
+app.addEventListener("change", (event) => {
+  const modalUnit = event.target.closest("[data-approved-modal-unit]");
+  if (modalUnit) {
+    const upload = modalUnit.closest("form")?.querySelector("[data-file-upload]");
+    if (upload) upload.dataset.unitId = modalUnit.value;
+  }
+  const filter = event.target.closest("[data-approved-filter]");
+  if (!filter) return;
+  const moduleCode = filter.dataset.approvedFilter;
+  state.approvedFilters[moduleCode] ||= {};
+  state.approvedFilters[moduleCode][filter.dataset.approvedFilterKey] = filter.value;
+  writeStorage("approvedModuleFilters", state.approvedFilters);
+  render();
+});
+
+app.addEventListener("input", (event) => {
+  const filter = event.target.closest('[data-approved-filter][type="search"]');
+  if (!filter) return;
+  const moduleCode = filter.dataset.approvedFilter;
+  state.approvedFilters[moduleCode] ||= {};
+  state.approvedFilters[moduleCode][filter.dataset.approvedFilterKey] = filter.value;
+  writeStorage("approvedModuleFilters", state.approvedFilters);
+  window.clearTimeout(filter._approvedTimer);
+  filter._approvedTimer = window.setTimeout(render, 120);
+});
+
+app.addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-approved-record-form], [data-document-folder-form], [data-approved-wizard-form]");
+  if (!form) return;
+  event.preventDefault();
+  if (form.matches("[data-document-folder-form]")) {
+    saveDocumentFolder(form);
+    return;
+  }
+  if (form.matches("[data-approved-wizard-form]")) {
+    await finishApprovedWizard(form);
+    return;
+  }
+  await saveApprovedRecord(form);
+});
+
+app.addEventListener("dragstart", (event) => {
+  const card = event.target.closest("[data-credential-card]");
+  if (!card || !event.dataTransfer) return;
+  const payload = {
+    unitId: card.dataset.unitId,
+    procedureId: card.dataset.procedureId,
+  };
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/json", JSON.stringify(payload));
+  event.dataTransfer.setData("text/plain", `${payload.unitId}::${payload.procedureId}`);
+  card.classList.add("is-dragging");
+  card.setAttribute("aria-grabbed", "true");
+});
+
+app.addEventListener("dragover", (event) => {
+  const stage = event.target.closest("[data-credential-stage]");
+  if (!stage) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  app.querySelectorAll("[data-credential-stage].is-drop-target").forEach((item) => item.classList.remove("is-drop-target"));
+  stage.classList.add("is-drop-target");
+});
+
+app.addEventListener("dragleave", (event) => {
+  const stage = event.target.closest("[data-credential-stage]");
+  if (stage && !stage.contains(event.relatedTarget)) stage.classList.remove("is-drop-target");
+});
+
+app.addEventListener("drop", async (event) => {
+  const stage = event.target.closest("[data-credential-stage]");
+  if (!stage) return;
+  event.preventDefault();
+  stage.classList.remove("is-drop-target");
+  let payload = null;
+  try {
+    payload = JSON.parse(event.dataTransfer?.getData("application/json") || "null");
+  } catch {
+    payload = null;
+  }
+  if (!payload?.unitId || !payload?.procedureId) return;
+  await moveCredentialPipelineCard(payload, stage.dataset.credentialStage);
+});
+
+app.addEventListener("dragend", (event) => {
+  const card = event.target.closest("[data-credential-card]");
+  card?.classList.remove("is-dragging");
+  card?.setAttribute("aria-grabbed", "false");
+  app.querySelectorAll("[data-credential-stage].is-drop-target").forEach((item) => item.classList.remove("is-drop-target"));
 });
 
 async function init() {
+  const recoveryParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  if (recoveryParams.get("type") === "recovery" && recoveryParams.get("access_token")) {
+    showPasswordReset(recoveryParams.get("access_token"));
+    return;
+  }
+
   const careersTenant = new URLSearchParams(window.location.search).get("careers");
   if (careersTenant) {
     await showCareersPortal(careersTenant);
     return;
   }
 
-  const localPreviewRole = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  const previewHost = window.location.hostname;
+  const isPrivatePreviewHost = ["localhost", "127.0.0.1", "::1"].includes(previewHost)
+    || /^10\./.test(previewHost)
+    || /^192\.168\./.test(previewHost)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(previewHost);
+  const localPreviewRole = isPrivatePreviewHost
     ? new URLSearchParams(window.location.search).get("preview")
     : "";
   const isLocalSystemPreview = localPreviewRole === "system";
@@ -471,6 +880,7 @@ async function init() {
     };
     state.auth = { user: { role: "tenant_user", name: "Usuário da Franquia" } };
     state.profile = { name: "Usuário da Franquia", photo: "" };
+    state.portalMode = "franchisee";
     state.selectedTenantId = tenantId;
     state.tenantModules = tenantId ? [{ tenantId, moduleCode: "business", status: "active" }] : [];
     showApp();
@@ -582,36 +992,66 @@ function showLogin(message = "") {
   landingScreen.hidden = true;
   appShell.hidden = true;
   loginScreen.hidden = false;
+  const rememberedEmail = readStorage("rememberedLoginEmail", "");
   loginScreen.innerHTML = `
-    <div class="login-shell">
-      <form class="login-card" data-login-form>
-        <button class="login-close" data-close-login type="button" aria-label="Voltar para a apresentação">×</button>
-        <div class="brand product-brand login-product-brand" aria-label="33Doctor APP">
-          <span class="brand-platform-lockup login-platform-lockup"><span class="brand-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></span>
+    <div class="login-shell login-shell-v2">
+      <section class="login-showcase" aria-label="Apresentação da plataforma 33Doctor">
+        <header class="login-showcase-brand">
+          <span class="lp-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span>
+          <small>Plataforma de Gestão do Franqueado</small>
+        </header>
+        <div class="login-showcase-copy">
+          <h1>Gestão <strong>integrada.</strong><br />Resultados <strong>conectados.</strong></h1>
+          <p>Uma plataforma completa para acompanhar, gerenciar e impulsionar o crescimento da sua franquia 33Doctor.</p>
+          <div class="login-benefits">
+            <article><i data-lucide="shield-check"></i><strong>Segurança</strong><small>Seus dados protegidos com tecnologia e acesso controlado.</small></article>
+            <article><i data-lucide="chart-no-axes-combined"></i><strong>Gestão inteligente</strong><small>Informações em tempo real para decisões mais estratégicas.</small></article>
+            <article><i data-lucide="headphones"></i><strong>Suporte dedicado</strong><small>Equipe especializada para apoiar a sua operação.</small></article>
+          </div>
         </div>
-        <div>
-          <p class="eyebrow">Acesso restrito</p>
-          <h1>Entrar no sistema</h1>
+        <div class="login-showcase-stats">
+          <div><i data-lucide="store"></i><span><strong>147</strong><small>Franquias ativas</small></span></div>
+          <div><i data-lucide="users"></i><span><strong>3.280</strong><small>Prestadores credenciados</small></span></div>
+          <div><i data-lucide="chart-no-axes-combined"></i><span><strong>98,9%</strong><small>Disponibilidade da plataforma</small></span></div>
         </div>
-        ${message ? `<div class="login-alert">${escapeHtml(message)}</div>` : ""}
-        ${!supabaseEnabled ? `<div class="login-alert">Configure URL e anon key em supabase-config.js para habilitar o login.</div>` : ""}
-        <label>
-          <span>E-mail</span>
-          <input name="email" type="email" autocomplete="username" required ${!supabaseEnabled ? "disabled" : ""} />
-        </label>
-        <label>
-          <span>Senha</span>
-          <input name="password" type="password" autocomplete="current-password" required ${!supabaseEnabled ? "disabled" : ""} />
-        </label>
-        <button class="primary-button" type="submit" ${!supabaseEnabled ? "disabled" : ""}>Entrar</button>
-        <small>Conexão segura com criptografia de ponta a ponta.</small>
-      </form>
-      <div class="login-developed" aria-label="Desenvolvido pela Nexa">
-        <span>Desenvolvido pela</span>
-        <img src="./assets/nexa-logo.svg" alt="Nexa - conectando pessoas e transformando resultados" />
-      </div>
+        <p class="login-showcase-foot">Conectamos pessoas, processos e tecnologia para entregar a melhor experiência em saúde.</p>
+      </section>
+
+      <section class="login-panel">
+        <form class="login-card login-card-v2" data-login-form>
+          <div class="login-platform-lockup" aria-label="33Doctor APP">
+            <span class="lp-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span>
+            <small>Plataforma de Gestão do Franqueado</small>
+          </div>
+          <div class="login-heading">
+            <p class="eyebrow">Acesso restrito</p>
+            <h1>Bem-vindo de volta!</h1>
+            <p>Entre com suas credenciais para acessar o sistema.</p>
+          </div>
+          <div class="login-feedback" data-login-feedback aria-live="polite">
+            ${message ? `<div class="login-alert">${escapeHtml(message)}</div>` : ""}
+          </div>
+          <label>
+            <span>E-mail</span>
+            <div class="login-input-wrap"><i data-lucide="mail"></i><input name="email" type="email" autocomplete="username" placeholder="Digite seu e-mail" value="${escapeHtml(rememberedEmail)}" required /></div>
+          </label>
+          <label>
+            <span>Senha</span>
+            <div class="login-input-wrap"><i data-lucide="lock-keyhole"></i><input name="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required /><button class="login-password-toggle" data-toggle-password type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button></div>
+          </label>
+          <div class="login-options">
+            <label class="login-remember"><input name="remember" type="checkbox" ${rememberedEmail ? "checked" : ""} /><span>Lembrar-me</span></label>
+            <button class="login-forgot" data-forgot-password type="button">Esqueceu sua senha?</button>
+          </div>
+          <button class="login-submit" type="submit"><span>Entrar no sistema</span><i data-lucide="arrow-right"></i></button>
+          <span class="login-secure-note"><i data-lucide="lock-keyhole"></i>Conexão segura com criptografia de ponta a ponta.</span>
+        </form>
+        <div class="login-developed-v2" aria-label="Desenvolvido pela Nexa"><span>Desenvolvido pela</span><img src="./assets/nexa-logo.svg" alt="Nexa - soluções que conectam, resultados que transformam" /></div>
+        <footer class="login-legal"><span>© 2026 33Doctor</span><span>Política de Privacidade</span><span>LGPD</span><span>● Sistemas operando</span></footer>
+      </section>
     </div>
   `;
+  refreshIcons();
 }
 
 function showLanding() {
@@ -648,12 +1088,103 @@ async function login(form) {
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(payload?.error || "Não foi possível entrar.");
+    writeStorage("rememberedLoginEmail", form.remember?.checked ? form.email.value.trim().toLowerCase() : "");
     state.auth = payload.session;
     writeStorage("appSession", persistedAuthSession(payload.session));
     await loadSupabaseData();
     showApp();
   } catch (error) {
     showLogin(error.message || "Não foi possível entrar.");
+  }
+}
+
+async function requestPasswordRecovery(email) {
+  const feedback = loginScreen.querySelector("[data-login-feedback]");
+  const button = loginScreen.querySelector("[data-forgot-password]");
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!feedback) return;
+  if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+    feedback.innerHTML = '<div class="login-alert">Informe seu e-mail para recuperar a senha.</div>';
+    loginScreen.querySelector("input[name='email']")?.focus();
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Enviando...";
+  try {
+    const response = await fetch("/api/auth/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalizedEmail }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error || "Não foi possível solicitar a recuperação.");
+    feedback.innerHTML = '<div class="login-alert success">Se o e-mail estiver cadastrado, você receberá as instruções de recuperação.</div>';
+  } catch (error) {
+    feedback.innerHTML = `<div class="login-alert">${escapeHtml(error.message || "Não foi possível solicitar a recuperação.")}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Esqueceu sua senha?";
+  }
+}
+
+function showPasswordReset(accessToken, message = "") {
+  landingScreen.hidden = true;
+  appShell.hidden = true;
+  loginScreen.hidden = false;
+  loginScreen.innerHTML = `
+    <div class="login-shell login-shell-v2">
+      <section class="login-showcase" aria-label="Apresentação da plataforma 33Doctor">
+        <header><span class="lp-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></header>
+        <div class="login-showcase-copy"><h1>Gestão <strong>integrada.</strong><br />Resultados <strong>conectados.</strong></h1><p>Proteja sua conta com uma senha exclusiva e mantenha o acesso à operação da sua franquia.</p></div>
+        <div class="login-showcase-stats"><div><strong>Acesso individual</strong><small>Nunca compartilhe sua senha</small></div><div><strong>Ambiente protegido</strong><small>Controle e rastreabilidade</small></div></div>
+      </section>
+      <section class="login-panel">
+        <form class="login-card login-card-v2" data-reset-password-form data-recovery-token="${escapeHtml(accessToken)}">
+          <div class="login-platform-lockup"><span class="lp-logo-crop"><img src="./assets/33doctor-logo.png" alt="33Doctor" /></span><small>Plataforma de Gestão do Franqueado</small></div>
+          <div class="login-heading"><p class="eyebrow">Recuperação de acesso</p><h1>Crie uma nova senha</h1><p>Use pelo menos oito caracteres e evite reutilizar senhas de outros serviços.</p></div>
+          <div class="login-feedback" data-login-feedback aria-live="polite">${message ? `<div class="login-alert">${escapeHtml(message)}</div>` : ""}</div>
+          <label><span>Nova senha</span><div class="login-input-wrap"><i data-lucide="lock-keyhole"></i><input name="password" type="password" autocomplete="new-password" minlength="8" placeholder="Digite a nova senha" required /><button class="login-password-toggle" data-toggle-password type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button></div></label>
+          <label><span>Confirmar senha</span><div class="login-input-wrap"><i data-lucide="shield-check"></i><input name="passwordConfirmation" type="password" autocomplete="new-password" minlength="8" placeholder="Repita a nova senha" required /></div></label>
+          <button class="login-submit" type="submit">Atualizar senha</button>
+          <span class="login-secure-note"><i data-lucide="lock-keyhole"></i>Conexão segura e acesso protegido.</span>
+        </form>
+        <div class="login-developed-v2"><span>Desenvolvido pela</span><img src="./assets/nexa-logo.svg" alt="Nexa" /></div>
+      </section>
+    </div>
+  `;
+  refreshIcons();
+}
+
+async function updateRecoveredPassword(form) {
+  const feedback = form.querySelector("[data-login-feedback]");
+  const button = form.querySelector("button[type='submit']");
+  const password = String(form.password.value || "");
+  if (password !== String(form.passwordConfirmation.value || "")) {
+    feedback.innerHTML = '<div class="login-alert">As senhas informadas não coincidem.</div>';
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Atualizando...";
+  try {
+    const response = await fetch(`${supabaseConfig.url}/auth/v1/user`, {
+      method: "PUT",
+      headers: {
+        apikey: supabaseConfig.anonKey,
+        Authorization: `Bearer ${form.dataset.recoveryToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ password }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.msg || payload?.message || "Não foi possível atualizar a senha.");
+    history.replaceState({}, document.title, `${window.location.pathname}${window.location.search.replace(/[?&]password-reset=1/, "")}`);
+    showLogin("Senha atualizada com sucesso. Entre com a nova senha.");
+  } catch (error) {
+    feedback.innerHTML = `<div class="login-alert">${escapeHtml(error.message || "Não foi possível atualizar a senha.")}</div>`;
+    button.disabled = false;
+    button.textContent = "Atualizar senha";
   }
 }
 
@@ -710,6 +1241,7 @@ async function loadSupabaseData() {
     canCreateUsers: ["admin", "gestao"].includes(sessionRole),
     canDeleteUsers: sessionRole === "admin",
   };
+  if (!state.accessContext.platformAdmin) state.portalMode = "franchisee";
   state.tenantModules = payload.tenantModules || fallbackTenantModules(payload.units || []);
   state.adminData = payload.admin || null;
   state.selectedTenantId = state.accessContext.memberships?.[0]?.tenantId || payload.units?.[0]?.tenantId || "";
@@ -892,6 +1424,40 @@ function parseFileReference(value) {
   return { id: "", name: raw, reference: raw, url: /^https?:\/\//i.test(raw) ? raw : "" };
 }
 
+function accreditationContracts(value) {
+  const raw = String(value || "").trim();
+  if (!raw || /^(sem anexo|não anexado|nao anexado|sem arquivo)$/i.test(raw)) return [];
+
+  if (raw.startsWith(accreditationContractsPrefix)) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(raw.slice(accreditationContractsPrefix.length)));
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((item, index) => ({
+        id: String(item?.id || `contract-${index + 1}`),
+        providerName: String(item?.providerName || ""),
+        attachment: String(item?.attachment || ""),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  const legacyFile = parseFileReference(raw);
+  return legacyFile.name ? [{ id: "legacy-contract", providerName: "", attachment: legacyFile.reference }] : [];
+}
+
+function serializeAccreditationContracts(contracts) {
+  const normalized = (contracts || [])
+    .map((item, index) => ({
+      id: String(item.id || `contract-${index + 1}`),
+      providerName: String(item.providerName || "").trim(),
+      attachment: String(item.attachment || "").trim(),
+    }))
+    .filter((item) => item.providerName || parseFileReference(item.attachment).name);
+  if (!normalized.length) return "";
+  return `${accreditationContractsPrefix}${encodeURIComponent(JSON.stringify(normalized))}`;
+}
+
 function unitForId(unitId) {
   return data.units.find((unit) => unit.id === unitId) || state.drafts.find((unit) => unit.id === unitId);
 }
@@ -1051,15 +1617,32 @@ function updateSourceCount() {
   if (sourceCount) sourceCount.textContent = supabaseEnabled ? "Supabase" : `${data.sourceFiles.length} planilhas`;
 }
 
+let lastRenderedView = "";
+
+function resetPlatformScroll() {
+  window.requestAnimationFrame(() => {
+    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.querySelector(".workspace")?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    app.scrollTo?.({ top: 0, left: 0, behavior: "instant" });
+  });
+}
+
 function render() {
   if (removedModuleCodes.has(state.view)) state.view = "dashboard";
+  if (isFranchiseePortal() && !franchiseeViewAllowed(state.view)) state.view = "dashboard";
   const titles = {
     dashboard: "Página inicial",
-    franchises: "Franquias",
+    executive: "Painel executivo",
+    indicators: "Indicadores",
+    franchises: "Unidades",
     units: "Unidades",
     roadmap: "Roadmap",
     purchases: "Compras",
     accreditation: "Credenciamentos",
+    operation: "Operação",
+    contracts: "Contratos",
+    compliance: "Compliance",
+    training: "Treinamentos",
     "new-unit": "Adicionar Nova Franquia",
     hr: "Recursos Humanos",
     dp: "Departamento Pessoal",
@@ -1072,7 +1655,9 @@ function render() {
   updateTopbarState(currentTitle);
 
   const views = {
-    dashboard: renderDashboard,
+    dashboard: isFranchiseePortal() ? renderFranchiseeHome : renderManualHome,
+    executive: renderExecutivePanel,
+    indicators: renderIndicatorsPanel,
     franchises: renderFranchises,
     units: renderUnits,
     roadmap: renderRoadmap,
@@ -1082,11 +1667,18 @@ function render() {
     hr: () => renderDepartmentHub("hr"),
     dp: () => renderDepartmentHub("dp"),
     finance: () => renderDepartmentHub("finance"),
+    operation: () => renderDepartmentHub("operation"),
+    contracts: () => renderDepartmentHub("contracts"),
+    compliance: () => renderDepartmentHub("compliance"),
+    training: () => renderDepartmentHub("training"),
     admin: renderAdminCenter,
     settings: () => renderDepartmentHub("settings"),
   };
   const viewRenderer = views[state.view] || (departmentDefinitions[state.view] && !removedModuleCodes.has(state.view) ? () => renderDepartmentHub(state.view) : renderDashboard);
-  app.innerHTML = `${renderBreadcrumb()}${viewRenderer()}`;
+  const viewChanged = lastRenderedView !== state.view;
+  app.innerHTML = `${viewRenderer()}${renderApprovedModal()}`;
+  lastRenderedView = state.view;
+  if (viewChanged) resetPlatformScroll();
   updateNavigationAccess();
   applyViewPermissions();
   renderNotificationCenter();
@@ -1099,27 +1691,33 @@ function renderBreadcrumb() {
   if (state.view === "dashboard") {
     add("Visão Geral");
     add("Página Inicial");
-  } else if (state.view === "franchises") {
+  } else if (state.view === "executive") {
     add("Visão Geral", "dashboard");
-    add("Franquias", state.franchiseWorkspaceUnitId ? "franchises" : "");
+    add("Painel executivo");
+  } else if (state.view === "indicators") {
+    add("Visão Geral", "dashboard");
+    add("Indicadores");
+  } else if (state.view === "franchises") {
+    add("Rede de Franquias", "dashboard");
+    add("Unidades", state.franchiseWorkspaceUnitId ? "franchises" : "");
     const unit = roadmapUnits().find((item) => item.id === state.franchiseWorkspaceUnitId);
     if (unit) add(unit.name || `${unit.city} ${unit.state || ""}`);
   } else if (state.view === "new-unit") {
-    add("Visão Geral", "dashboard");
-    add("Franquias", "franchises");
-    add("Adicionar Nova Franquia");
+    add("Rede de Franquias", "dashboard");
+    add("Unidades", "franchises");
+    add("Nova unidade");
   } else if (state.view === "implantation") {
     const department = departmentDefinitions.implantation;
     const sectionId = state.departmentSections.implantation || department.sections[0].id;
     const section = department.sections.find((item) => item.id === sectionId) || department.sections[0];
-    add("Visão Geral", "dashboard");
-    add("Momento de Implantação");
+    add("Rede de Franquias", "dashboard");
+    add("Jornada de implantação");
     add(section.label);
   } else if (departmentDefinitions[state.view]) {
     const department = departmentDefinitions[state.view];
     const sectionId = state.departmentSections[state.view] || department.sections[0].id;
     const section = department.sections.find((item) => item.id === sectionId) || department.sections[0];
-    add(state.view === "settings" ? "Sistema" : "Operação");
+    add(departmentGroupLabel(state.view));
     add(department.name);
     add(section.label);
   } else {
@@ -1136,6 +1734,14 @@ function renderBreadcrumb() {
       `).join("")}
     </nav>
   `;
+}
+
+function departmentGroupLabel(code) {
+  if (["implantation", "credentialing", "operation"].includes(code)) return "Rede de Franquias";
+  if (["finance", "dp", "hr", "projects", "quality"].includes(code)) return "Gestão Corporativa";
+  if (["documentation", "contracts", "compliance"].includes(code)) return "Governança";
+  if (["communication", "training", "support"].includes(code)) return "Relacionamento";
+  return "Administração";
 }
 
 function refreshIcons() {
@@ -1312,13 +1918,14 @@ function currentProfileName() {
 }
 
 function profileInitials(name) {
-  return String(name || "NX")
+  const words = String(name || "NX")
+    .trim()
     .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase() || "NX";
+    .map((part) => part.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, ""))
+    .filter(Boolean);
+  if (!words.length) return "NX";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
 }
 
 async function saveProfile() {
@@ -1430,6 +2037,13 @@ const departmentDefinitions = {
     description: "Prestadores, negociações, procedimentos, documentação e aprovações da rede de atendimento.",
     sections: departmentSections(["Dashboard de Credenciamento", "Prestadores", "Clínicas", "Hospitais", "Laboratórios", "Médicos", "Procedimentos", "Tabelas de Preços", "Negociações", "Documentações", "Aprovação", "Auditoria"]),
   },
+  operation: {
+    name: "Operação",
+    eyebrow: "Rotina das unidades",
+    icon: "clipboard-check",
+    description: "Rotinas diárias, checklists, agenda operacional, ocorrências e planos corretivos das unidades.",
+    sections: departmentSections(["Visão Operacional", "Checklists", "Ocorrências", "Agenda Operacional", "Planos de Ação", "Indicadores Operacionais"]),
+  },
   hr: {
     name: "Recursos Humanos",
     eyebrow: "Pessoas e cultura",
@@ -1473,18 +2087,32 @@ const departmentDefinitions = {
     sections: departmentSections(["Dashboard Projetos", "Obras", "Cronogramas", "Fornecedores", "Compras", "Entregas", "Checklists"]),
   },
   quality: {
-    name: "Qualidade",
+    name: "Qualidade e Processos",
     eyebrow: "Padrão operacional",
     icon: "sparkles",
     description: "Auditorias, conformidade, planos de ação, indicadores e certificações das unidades.",
-    sections: departmentSections(["Dashboard Qualidade", "Auditorias", "Não Conformidades", "Plano de Ação", "Indicadores", "Certificações"]),
+    sections: departmentSections(["Visão da Qualidade", "Processos e POPs", "Auditorias", "Não Conformidades", "Planos de Ação", "Verificação de Eficácia", "Indicadores"]),
   },
   documentation: {
-    name: "Documentação",
+    name: "Documentos",
     eyebrow: "Conhecimento da rede",
     icon: "files",
     description: "Central oficial de documentos, manuais, políticas, formulários e modelos da franqueadora.",
-    sections: departmentSections(["Central de Documentos", "POPs", "Manuais", "Políticas", "Formulários", "Modelos", "Downloads"]),
+    sections: departmentSections(["Visão Documental", "Bibliotecas", "Revisão", "Aprovação", "Assinatura", "Ciência", "Vencimentos"]),
+  },
+  contracts: {
+    name: "Contratos",
+    eyebrow: "Ciclo contratual",
+    icon: "file-signature",
+    description: "Solicitação, elaboração, aprovação, assinatura, obrigações, renovação e encerramento dos contratos.",
+    sections: departmentSections(["Visão de Contratos", "Solicitações", "Em Elaboração", "Revisão", "Aprovação", "Assinatura", "Vigentes", "Obrigações", "Renovações"]),
+  },
+  compliance: {
+    name: "Compliance",
+    eyebrow: "Riscos e conformidade",
+    icon: "shield-check",
+    description: "Obrigações, riscos, controles, políticas, due diligence, incidentes e planos de adequação.",
+    sections: departmentSections(["Visão de Compliance", "Riscos", "Controles", "Obrigações", "Due Diligence", "Políticas", "Incidentes", "Planos de Adequação"]),
   },
   legal: {
     name: "Jurídico",
@@ -1512,14 +2140,21 @@ const departmentDefinitions = {
     eyebrow: "Rede conectada",
     icon: "messages-square",
     description: "Avisos, comunicados, notícias, eventos e conversas corporativas da rede.",
-    sections: departmentSections(["Central de Avisos", "Comunicados", "Notícias", "Eventos", "Chat Corporativo"]),
+    sections: departmentSections(["Visão da Comunicação", "Comunicados", "Agenda", "Aprovações", "Segmentação", "Ciência"]),
+  },
+  training: {
+    name: "Treinamentos",
+    eyebrow: "Universidade corporativa",
+    icon: "graduation-cap",
+    description: "Cursos, trilhas, turmas, avaliações, certificados e prontidão das pessoas e unidades.",
+    sections: departmentSections(["Visão de Treinamentos", "Catálogo", "Trilhas", "Turmas", "Matrículas", "Avaliações", "Certificados", "Reciclagens"]),
   },
   support: {
-    name: "Suporte",
+    name: "Chamados e suporte",
     eyebrow: "Atendimento à rede",
     icon: "headset",
     description: "Chamados, conteúdos de ajuda e orientação para a operação diária das unidades.",
-    sections: departmentSections(["Chamados", "Base de Conhecimento", "Tutoriais", "FAQ"]),
+    sections: departmentSections(["Visão do Suporte", "Chamados", "Filas e SLA", "Incidentes", "Base de Conhecimento", "Satisfação"]),
   },
   settings: {
     name: "Configurações",
@@ -1662,7 +2297,7 @@ function renderDepartmentVisualWorkspace(departmentCode, department, activeSecti
         <aside class="panel department-side-panel">
           <span class="eyebrow">Como acessar</span>
           <h2>Caminho desta área</h2>
-          <div class="module-access-path"><span>Operação</span><i data-lucide="chevron-right"></i><span>${escapeHtml(department.name)}</span><i data-lucide="chevron-right"></i><strong>${escapeHtml(activeSection.label)}</strong></div>
+          <div class="module-access-path"><span>${escapeHtml(departmentGroupLabel(departmentCode))}</span><i data-lucide="chevron-right"></i><span>${escapeHtml(department.name)}</span><i data-lucide="chevron-right"></i><strong>${escapeHtml(activeSection.label)}</strong></div>
           <span class="eyebrow operational-guide-label">Fluxo de atualização</span>
           <ol>
             ${["Registrar demanda e prioridade", "Definir responsável e prazo", "Anexar evidências e observações", "Salvar a atualização"].map((step, index) => `<li><b>${index + 1}</b><span><strong>${step}</strong><small>${index === 3 ? "Os dados ficam vinculados à franquia" : "Mantenha o histórico operacional completo"}</small></span></li>`).join("")}
@@ -1959,6 +2594,21 @@ function isPlatformAdmin() {
   return Boolean(state.accessContext?.platformAdmin);
 }
 
+function isFranchiseePortal() {
+  return !isPlatformAdmin() || state.portalMode === "franchisee";
+}
+
+function franchiseeViewAllowed(view) {
+  const coreViews = new Set([
+    "dashboard", "franchises", "units", "roadmap", "purchases", "accreditation",
+    "implantation", "credentialing", "operation", "documentation", "communication",
+    "training", "support", "new-unit",
+  ]);
+  if (coreViews.has(view)) return true;
+  if (view === "hr" || view === "dp" || view === "finance") return tenantModuleStatus(view) === "active";
+  return false;
+}
+
 function canCreateFranchise() {
   return !supabaseEnabled || Boolean(state.auth?.token || state.auth?.user);
 }
@@ -2021,6 +2671,8 @@ function applyViewPermissions() {
     "[data-status-id]", "[data-pendency-status]", "[data-pendency-note]",
     "[data-accreditation-status]", "[data-accreditation-request-date]", "[data-accreditation-approval-date]",
     "[data-accreditation-owner]", "[data-accreditation-attachments]", "[data-accreditation-notes]",
+    "[data-accreditation-provider-name]", "[data-accreditation-contract-attachment]",
+    "[data-add-accreditation-contract]", "[data-remove-accreditation-contract]",
     "[data-operational-field]", "[data-unit-record-form] input", "[data-unit-record-form] select",
     "[data-unit-record-form] textarea", "[data-add-unit-record]", "[data-save-pendencies]",
     "[data-save-accreditations]", "[data-save-operational]", "[data-schedule-status]",
@@ -2061,14 +2713,44 @@ function moduleStatusLabel(status) {
 }
 
 function updateNavigationAccess() {
+  const franchiseeMode = isFranchiseePortal();
+  appShell.classList.toggle("franchisee-portal", franchiseeMode);
+  document.querySelectorAll("[data-portal-mode]").forEach((button) => {
+    button.hidden = button.dataset.portalMode === "franchisor" && !isPlatformAdmin();
+    button.classList.toggle("active", button.dataset.portalMode === state.portalMode || (franchiseeMode && button.dataset.portalMode === "franchisee"));
+  });
+  document.querySelector(".portal-switcher")?.classList.toggle("single", !isPlatformAdmin());
+
+  const dashboardLabel = document.querySelector('.nav-item[data-view="dashboard"] span');
+  const franchiseLabel = document.querySelector('.nav-item[data-view="franchises"] span');
+  const franchiseFolderLabel = document.querySelector('[data-nav-folder="franchises"] .nav-folder-trigger span');
+  const profileRole = document.querySelector(".top-profile-copy small");
+  if (dashboardLabel) dashboardLabel.textContent = franchiseeMode ? "Painel da unidade" : "Página inicial";
+  if (franchiseLabel) franchiseLabel.textContent = franchiseeMode ? "Minha unidade" : "Unidades";
+  if (franchiseFolderLabel) franchiseFolderLabel.textContent = franchiseeMode ? "Minha Franquia" : "Rede de Franquias";
+  if (profileRole) profileRole.textContent = franchiseeMode ? "Portal do franqueado" : "Admin da rede";
+  if (globalSearch) globalSearch.placeholder = franchiseeMode ? "Buscar na minha unidade..." : "Buscar no sistema...";
+
+  const franchiseeHiddenViews = new Set(["executive", "indicators", "projects", "quality", "contracts", "compliance"]);
+  document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
+    const view = button.dataset.view;
+    if (button.hasAttribute("data-module-nav")) return;
+    const hiddenByPortal = franchiseeMode && franchiseeHiddenViews.has(view);
+    if (hiddenByPortal) button.hidden = true;
+    else if (!button.hasAttribute("data-platform-only")) button.hidden = false;
+  });
   document.querySelectorAll("[data-platform-only]").forEach((element) => {
-    element.hidden = !canCreatePlatformUsers();
+    element.hidden = franchiseeMode || !canCreatePlatformUsers();
   });
   document.querySelectorAll("[data-module-nav]").forEach((button) => {
-    const status = isPlatformAdmin() ? "admin" : tenantModuleStatus(button.dataset.moduleNav);
+    const status = isPlatformAdmin() && !franchiseeMode ? "admin" : tenantModuleStatus(button.dataset.moduleNav);
     button.dataset.moduleAccess = status;
     const label = button.querySelector("[data-module-state]");
     if (label) label.textContent = status === "admin" ? "Visualizar" : moduleStatusLabel(status);
+  });
+  document.querySelectorAll("[data-nav-folder]").forEach((folder) => {
+    const visibleChildren = [...folder.querySelectorAll(".nav-item")].some((item) => !item.hidden);
+    folder.hidden = !visibleChildren;
   });
 }
 
@@ -2867,7 +3549,10 @@ function allUnits() {
 }
 
 function roadmapUnits() {
-  return allUnits().filter((unit) => unit.tasks?.length);
+  const units = allUnits().filter((unit) => unit.tasks?.length);
+  if (!isFranchiseePortal()) return units;
+  const tenantId = currentTenantId();
+  return units.filter((unit) => (unit.tenantId || unit.id) === tenantId);
 }
 
 function unitProgress(unit) {
@@ -3202,6 +3887,225 @@ function matchesSearch(...values) {
   return values.join(" ").toLowerCase().includes(state.search);
 }
 
+function manualSummaryData() {
+  const units = roadmapUnits();
+  const taskRows = units.flatMap((unit) => (unit.tasks || []).map((task) => ({ unit, task })));
+  const completed = taskRows.filter(({ task }) => getStatus(task) === "Concluído");
+  const open = taskRows.filter(({ task }) => getStatus(task) !== "Concluído");
+  const critical = open.filter(({ unit, task }) => pendingPriority(task, unit) === "Alta");
+  const avg = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
+  const ready = units.filter((unit) => unitStatus(unit).label === "Pronta para inauguração");
+  const active = units.filter((unit) => unitProgress(unit).percent >= 90);
+  const implementing = units.filter((unit) => unitProgress(unit).percent < 90);
+  const upcoming = [...units]
+    .filter((unit) => daysTo(unit.openingDate) !== null)
+    .sort((a, b) => (daysTo(a.openingDate) ?? 9999) - (daysTo(b.openingDate) ?? 9999));
+  const ranking = [...units].sort((a, b) => unitProgress(b).percent - unitProgress(a).percent);
+  return { units, taskRows, completed, open, critical, avg, ready, active, implementing, upcoming, ranking };
+}
+
+function manualKpiCard(icon, label, value, detail, tone = "neutral", trend = "", metricTab = "") {
+  return `
+    <button class="manual-kpi ${escapeHtml(tone)}" data-approved-metric="dashboard"${metricTab ? ` data-metric-tab="${escapeHtml(metricTab)}"` : ""} type="button">
+      <span class="manual-kpi-icon"><i data-lucide="${escapeHtml(icon)}"></i></span>
+      <div><small>${escapeHtml(label)}</small><strong>${escapeHtml(String(value))}</strong><em>${escapeHtml(detail)}</em></div>
+      <div class="manual-sparkline" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      ${trend ? `<b>${escapeHtml(trend)}</b>` : ""}
+    </button>
+  `;
+}
+
+function renderFranchiseeHome() {
+  const unit = roadmapUnits()[0];
+  if (!unit) {
+    return `<section class="manual-page-heading"><div><h2>Painel da unidade</h2><p>Portal do franqueado</p></div>${availableTenants().length > 1 ? tenantSelector() : ""}</section>${empty("Seu usuário ainda não está vinculado a uma unidade com implantação ativa.")}`;
+  }
+
+  const progress = unitProgress(unit);
+  const stats = unitStats(unit);
+  const status = unitStatus(unit);
+  const pending = stats.pendingItems
+    .filter((item) => item.status !== "Concluído")
+    .sort((a, b) => Number(b.priority === "Alta") - Number(a.priority === "Alta") || Number(b.overdue) - Number(a.overdue));
+  const nextTask = (unit.tasks || []).find((task) => getStatus(task) !== "Concluído");
+  const phases = Object.entries(groupBy(unit.tasks || [], (task) => task.phase || "Implantação"));
+  const recent = (unit.tasks || [])
+    .filter((task) => task.actualDate || task.deadline || task.notes)
+    .sort((a, b) => String(b.actualDate || b.deadline || "").localeCompare(String(a.actualDate || a.deadline || "")))
+    .slice(0, 5);
+
+  return `
+    <section class="manual-page-heading franchisee-heading">
+      <div><span>Portal do franqueado</span><h2>${escapeHtml(unit.city)}${unit.state ? ` / ${escapeHtml(unit.state)}` : ""}</h2><p>${escapeHtml(unit.franchisee || unit.name || "Unidade 33Doctor")}</p></div>
+      <div class="manual-heading-actions">${availableTenants().length > 1 ? tenantSelector() : ""}<button class="primary-button" data-open-unit-workspace="${escapeHtml(unit.id)}" type="button"><i data-lucide="folder-open"></i>Abrir pasta da unidade</button></div>
+    </section>
+
+    <section class="franchisee-unit-hero">
+      <div class="franchisee-hero-copy"><span>Implantação da unidade</span><h3>${progress.percent >= READY_TO_OPEN_PROGRESS ? "Unidade pronta para inauguração" : "Acompanhe o avanço da sua implantação"}</h3><p>${escapeHtml(nextTask?.process ? `Próximo marco: ${nextTask.process}` : "Todas as etapas principais foram concluídas.")}</p><div>${statusBadge(status.label)}<small>Inauguração prevista: <strong>${formatDate(unit.openingDate)}</strong></small></div></div>
+      <div class="franchisee-progress-ring" style="--progress:${progress.percent}%"><span><strong>${progress.percent}%</strong><small>concluído</small></span></div>
+    </section>
+
+    <div class="franchisee-kpi-grid">
+      <button data-open-view="implantation" type="button"><span class="green"><i data-lucide="route"></i></span><div><small>Etapas concluídas</small><strong>${progress.done}<em>/${progress.total}</em></strong><p>${progress.inProgress} em andamento</p></div><i data-lucide="chevron-right"></i></button>
+      <button data-open-unit-workspace="${escapeHtml(unit.id)}" type="button"><span class="red"><i data-lucide="triangle-alert"></i></span><div><small>Pendências abertas</small><strong>${stats.openPending}</strong><p>${stats.overduePending} fora do prazo</p></div><i data-lucide="chevron-right"></i></button>
+      <button data-open-view="documentation" type="button"><span class="amber"><i data-lucide="files"></i></span><div><small>Documentação</small><strong>${stats.documentsPercent}%</strong><p>${stats.pendingDocs} documento(s) pendente(s)</p></div><i data-lucide="chevron-right"></i></button>
+      <button data-open-view="credentialing" type="button"><span class="blue"><i data-lucide="badge-check"></i></span><div><small>Credenciamento</small><strong>${stats.accreditationPercent}%</strong><p>${stats.pendingAccreditation} processo(s) em aberto</p></div><i data-lucide="chevron-right"></i></button>
+    </div>
+
+    <div class="franchisee-dashboard-grid">
+      <section class="manual-card franchisee-priorities">
+        <div class="manual-card-head"><div><h3>O que precisa da sua atenção</h3><p>Pendências da sua unidade.</p></div><button class="text-button" data-open-unit-workspace="${escapeHtml(unit.id)}" type="button">Ver todas</button></div>
+        <div class="franchisee-task-list">${pending.slice(0, 6).map((item) => `<button data-open-unit-workspace="${escapeHtml(unit.id)}" type="button"><span class="${item.priority === "Alta" || item.overdue ? "danger" : "warning"}"><i data-lucide="${item.overdue ? "clock-alert" : "circle-alert"}"></i></span><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.area || "Implantação")} · ${escapeHtml(item.owner || "Equipe responsável")}</small></div><em>${item.deadline ? formatDate(item.deadline) : "Sem prazo"}</em><i data-lucide="chevron-right"></i></button>`).join("") || empty("Nenhuma pendência aberta")}</div>
+      </section>
+
+      <aside class="manual-card franchisee-quick-actions">
+        <div class="manual-card-head"><div><h3>Acessos rápidos</h3><p>Rotina da sua unidade.</p></div></div>
+        <div><button data-open-view="implantation" type="button"><span><i data-lucide="list-checks"></i></span><strong>Implantação</strong><small>Etapas e prazos</small><i data-lucide="arrow-up-right"></i></button><button data-open-view="credentialing" type="button"><span><i data-lucide="badge-check"></i></span><strong>Credenciamento</strong><small>Pipeline e documentos</small><i data-lucide="arrow-up-right"></i></button><button data-open-view="documentation" type="button"><span><i data-lucide="folder-archive"></i></span><strong>Documentos</strong><small>Arquivos da unidade</small><i data-lucide="arrow-up-right"></i></button><button data-open-view="support" type="button"><span><i data-lucide="headset"></i></span><strong>Suporte</strong><small>Abrir chamado</small><i data-lucide="arrow-up-right"></i></button></div>
+      </aside>
+    </div>
+
+    <div class="franchisee-dashboard-grid secondary">
+      <section class="manual-card">
+        <div class="manual-card-head"><div><h3>Progresso por fase</h3><p>Avanço do roadmap da unidade.</p></div></div>
+        <div class="franchisee-phase-list">${phases.map(([phase, tasks]) => { const done = tasks.filter((task) => getStatus(task) === "Concluído").length; const value = percentOf(done, tasks.length); return `<article><div><strong>${escapeHtml(phase)}</strong><span>${done}/${tasks.length}</span></div><i><b style="width:${value}%"></b></i><small>${value}%</small></article>`; }).join("")}</div>
+      </section>
+      <section class="manual-card">
+        <div class="manual-card-head"><div><h3>Atualizações recentes</h3><p>Movimentações da implantação.</p></div></div>
+        <div class="manual-activity-list">${recent.map((task) => `<article><span class="${getStatus(task) === "Concluído" ? "done" : "pending"}"><i data-lucide="${getStatus(task) === "Concluído" ? "circle-check-big" : "clock-3"}"></i></span><div><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(task.phase)} · ${escapeHtml(getStatus(task))}</small></div><time>${displayDate(task.actualDate || task.deadline)}</time></article>`).join("") || empty("Nenhuma atualização recente")}</div>
+      </section>
+    </div>
+  `;
+}
+
+function renderManualHome() {
+  const summary = manualSummaryData();
+  const activeUnitFilter = state.approvedTabs.dashboard || "Todas";
+  const visibleUnits = summary.units.filter((unit) => {
+    if (activeUnitFilter === "Em implantação") return unitProgress(unit).percent < 90;
+    if (activeUnitFilter === "Em operação") return unitProgress(unit).percent >= 90;
+    if (activeUnitFilter === "Em atraso") return ["Em atraso", "Implantação crítica"].includes(unitStatus(unit).label);
+    return true;
+  });
+  const priorityRows = summary.critical.slice(0, 5);
+  const recentRows = summary.taskRows
+    .filter(({ task }) => task.actualDate || task.deadline)
+    .sort((a, b) => String(b.task.actualDate || b.task.deadline).localeCompare(String(a.task.actualDate || a.task.deadline)))
+    .slice(0, 5);
+
+  return `
+    <section class="manual-page-heading">
+      <div><h1>Página inicial</h1><p>Cockpit operacional da rede 33Doctor</p></div>
+      <div class="manual-heading-actions"><button class="ghost-button" data-toggle-filters="dashboard" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible.dashboard)}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="ghost-button" data-approved-export="dashboard" type="button"><i data-lucide="download"></i>Exportar</button><button class="primary-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i>Nova ação</button></div>
+    </section>
+
+    ${state.approvedFiltersVisible.dashboard ? `<section class="approved-filterbar"><label class="approved-search"><i data-lucide="search"></i><input data-approved-filter="dashboard" data-approved-filter-key="search" type="search" value="${escapeHtml(state.approvedFilters.dashboard?.search || "")}" placeholder="Buscar unidade ou responsável" /></label><label><span>Período</span><select data-approved-filter="dashboard" data-approved-filter-key="periodo"><option value="all">Período atual</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select></label><label><span>Região</span><select data-approved-filter="dashboard" data-approved-filter-key="regiao"><option value="all">Todas as regiões</option><option>Norte</option><option>Nordeste</option><option>Centro-Oeste</option><option>Sudeste</option><option>Sul</option></select></label></section>` : ""}
+
+    <div class="manual-kpi-grid four">
+      ${manualKpiCard("building-2", "Unidades totais", summary.units.length, `${summary.ready.length} pronta(s) para inaugurar`, "slate", "+ rede", "Todas")}
+      ${manualKpiCard("hard-hat", "Em implantação", summary.implementing.length, "acompanhamento ativo", "blue", "", "Em implantação")}
+      ${manualKpiCard("store", "Em operação", summary.active.length, "unidades com 90% ou mais", "green", "", "Em operação")}
+      ${manualKpiCard("triangle-alert", "Pendências críticas", summary.critical.length, `${summary.open.length} atividades abertas`, "red", "", "Em atraso")}
+    </div>
+
+    <nav class="approved-tabs dashboard-tabs" role="tablist" aria-label="Situação das unidades">${["Todas", "Em implantação", "Em operação", "Em atraso"].map((label) => `<button class="${activeUnitFilter === label ? "active" : ""}" data-approved-tab="dashboard" data-approved-tab-value="${escapeHtml(label)}" type="button" role="tab" aria-selected="${activeUnitFilter === label}">${escapeHtml(label)}</button>`).join("")}</nav>
+
+    <div class="manual-home-grid">
+      <section class="manual-card manual-units-card">
+        <div class="manual-card-head"><div><h2>Acompanhamento das unidades</h2><p>Avanço, prazo e responsáveis da rede.</p></div><button class="text-button" data-open-view="franchises" type="button">Ver todas as unidades <i data-lucide="arrow-right"></i></button></div>
+        <div class="manual-table-scroll">
+          <table class="manual-table manual-units-table">
+            <colgroup><col class="record-column" /><col class="unit-column" /><col class="status-column" /><col class="deadline-column" /><col class="owner-column" /><col class="action-column" /></colgroup>
+            <thead><tr><th>Registro</th><th>Unidade</th><th>Status</th><th>Prazo</th><th>Responsável</th><th></th></tr></thead>
+            <tbody>${visibleUnits.map((unit) => {
+              const progress = unitProgress(unit);
+              const status = unitStatus(unit);
+              return `<tr><td><strong>Implantação da unidade</strong><small>${progress.percent}% concluído · ${unitStats(unit).openPending} pendência(s)</small></td><td><strong>${escapeHtml(unit.city)}${unit.state ? `/${escapeHtml(unit.state)}` : ""}</strong><small>${escapeHtml(unit.franchisee || unit.name || "Franquia 33Doctor")}</small></td><td>${statusBadge(status.label)}</td><td>${escapeHtml(formatDate(unit.openingDate))}</td><td>${escapeHtml(unit.owner || "Implantação")}</td><td><button class="icon-button compact" data-select-unit="${escapeHtml(unit.id)}" type="button" title="Abrir unidade"><i data-lucide="arrow-up-right"></i></button></td></tr>`;
+            }).join("") || `<tr><td colspan="6">${empty("Nenhuma unidade neste filtro")}</td></tr>`}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <aside class="manual-home-aside">
+        <section class="manual-card">
+          <div class="manual-card-head"><div><h2>Prioridades da rede</h2><p>O que exige decisão agora.</p></div><button class="text-button" data-open-view="implantation" type="button">Ver todas</button></div>
+          <div class="manual-priority-list">${priorityRows.map(({ unit, task }) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span class="manual-alert-dot"></span><span><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(task.phase)}</small></span><i data-lucide="chevron-right"></i></button>`).join("") || empty("Nenhuma prioridade crítica")}</div>
+        </section>
+        <section class="manual-card">
+          <div class="manual-card-head"><div><h2>Próximos compromissos</h2><p>Marcos e inaugurações.</p></div><button class="text-button" data-open-view="implantation" type="button">Ver agenda</button></div>
+          <div class="manual-agenda-list">${summary.upcoming.slice(0, 4).map((unit) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span><b>${String(new Date(`${unit.openingDate}T12:00:00`).getDate()).padStart(2, "0")}</b><small>${new Date(`${unit.openingDate}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></span><div><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>Inauguração prevista · ${escapeHtml(formatDays(unit.openingDate))}</small></div><em>${formatDate(unit.openingDate)}</em></button>`).join("") || empty("Nenhum compromisso agendado")}</div>
+        </section>
+      </aside>
+    </div>
+
+    <div class="manual-analytics-grid">
+      <section class="manual-card"><div class="manual-card-head"><div><h2>Evolução da implantação</h2><p>Média da rede nos últimos seis meses.</p></div><span class="manual-period">Últimos 6 meses</span></div>${manualTrendChart(summary.avg)}</section>
+      <section class="manual-card"><div class="manual-card-head"><div><h2>Unidades por status</h2><p>Distribuição atual da rede.</p></div></div>${manualStatusDonut(summary)}</section>
+      <section class="manual-card"><div class="manual-card-head"><div><h2>Atividade recente</h2><p>Últimas atualizações registradas.</p></div><button class="text-button" data-open-view="implantation" type="button">Ver todas</button></div><div class="manual-activity-list">${recentRows.map(({ unit, task }) => `<article><span class="${getStatus(task) === "Concluído" ? "done" : "pending"}"><i data-lucide="${getStatus(task) === "Concluído" ? "circle-check-big" : "clock-3"}"></i></span><div><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(getStatus(task))}</small></div><time>${displayDate(task.actualDate || task.deadline)}</time></article>`).join("") || empty("Nenhuma atividade recente")}</div></section>
+    </div>
+  `;
+}
+
+function renderExecutivePanel() {
+  const summary = manualSummaryData();
+  const health = Math.max(0, Math.min(100, Math.round(summary.avg - (summary.critical.length / Math.max(summary.open.length, 1)) * 18 + 12)));
+  const criticalUnits = summary.units.filter((unit) => ["Em atraso", "Implantação crítica"].includes(unitStatus(unit).label));
+  return `
+    <section class="manual-page-heading">
+      <div><span>Visão estratégica</span><h2>Painel executivo</h2><p>Saúde da rede, metas, tendências, riscos e ranking de desempenho das unidades.</p></div>
+      <div class="manual-heading-actions"><button class="ghost-button" type="button"><i data-lucide="sliders-horizontal"></i> Filtros</button><button class="primary-button" data-export-executive type="button"><i data-lucide="download"></i> Exportar</button></div>
+    </section>
+    <section class="manual-executive-summary">
+      <div class="manual-health-score"><span style="--score:${health}%"><strong>${health}</strong><small>/100</small></span><div><small>Índice de saúde da rede</small><h3>${health >= 75 ? "Rede saudável" : health >= 55 ? "Atenção necessária" : "Rede crítica"}</h3><p>Composição de implantação, pendências, prontidão e cobertura credenciada.</p></div></div>
+      <div class="manual-map-panel"><div class="manual-map-stage"><img src="./assets/brazil-states.svg" alt="Mapa do Brasil com unidades 33Doctor" />${summary.units.map((unit, index) => { const point = mapPointForUnit(unit, index); return `<button class="executive-map-dot" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" title="${escapeHtml(unit.city)}"><span></span></button>`; }).join("")}</div></div>
+      <div class="manual-executive-note"><i data-lucide="lightbulb"></i><div><small>Recomendação executiva</small><strong>Priorizar ${criticalUnits.length} unidade(s) em situação de risco</strong><p>Abra o detalhamento para atribuir responsáveis e prazos.</p></div></div>
+    </section>
+    <div class="manual-kpi-grid six executive-cards">
+      ${manualKpiCard("building-2", "Expansão", summary.units.length, `${summary.implementing.length} em implantação`, "blue")}
+      ${manualKpiCard("activity", "Operação", `${summary.active.length}/${summary.units.length}`, "unidades prontas", "green")}
+      ${manualKpiCard("wallet", "Financeiro", "R$ 0", "aguardando lançamentos", "slate")}
+      ${manualKpiCard("users", "Pessoas", "0", "cadastros ativos", "purple")}
+      ${manualKpiCard("sparkles", "Qualidade", `${Math.max(0, 100 - summary.critical.length)}%`, "conformidade estimada", "amber")}
+      ${manualKpiCard("shield-check", "Compliance", summary.critical.length, "pontos de atenção", "red")}
+    </div>
+    <div class="manual-executive-grid">
+      <section class="manual-card span-2"><div class="manual-card-head"><div><h3>Tendência versus meta</h3><p>Evolução consolidada da rede.</p></div><span class="manual-period">Últimos 6 meses</span></div>${manualTrendChart(summary.avg, true)}</section>
+      <section class="manual-card"><div class="manual-card-head"><div><h3>Ranking das unidades</h3><p>Melhor desempenho atual.</p></div></div><div class="manual-ranking-list">${summary.ranking.map((unit, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><b>${index + 1}</b><span><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></span><div><i style="--progress:${unitProgress(unit).percent}%"></i></div><em>${unitProgress(unit).percent}%</em></button>`).join("")}</div></section>
+      <section class="manual-card"><div class="manual-card-head"><div><h3>Riscos executivos</h3><p>Principais fatores de desvio.</p></div></div><div class="manual-risk-list">${summary.critical.slice(0, 6).map(({ unit, task }) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span><i data-lucide="triangle-alert"></i></span><div><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(task.phase)}</small></div><em>Alta</em></button>`).join("") || empty("Nenhum risco crítico")}</div></section>
+    </div>
+  `;
+}
+
+function renderIndicatorsPanel() {
+  const summary = manualSummaryData();
+  const indicators = [
+    { name: "Progresso médio de implantação", value: `${summary.avg}%`, target: "Meta 90%", source: "Jornada de implantação", owner: "Implantação", tone: summary.avg >= 90 ? "green" : "amber" },
+    { name: "Etapas concluídas", value: summary.completed.length, target: `${summary.taskRows.length} previstas`, source: "Roadmap", owner: "Donos de processo", tone: "green" },
+    { name: "Pendências críticas", value: summary.critical.length, target: "Meta 0", source: "Pendências", owner: "Gestão da rede", tone: summary.critical.length ? "red" : "green" },
+    { name: "Prontidão das unidades", value: `${percentOf(summary.ready.length, Math.max(summary.units.length, 1))}%`, target: "Meta 100%", source: "Unidades", owner: "Operação", tone: "blue" },
+    { name: "Cobertura credenciada", value: accreditationCountForUnits(summary.units), target: "Procedimentos ativos", source: "Credenciamento", owner: "Credenciamento", tone: "purple" },
+    { name: "Qualidade do dado", value: "96%", target: "Meta 98%", source: "Cadastros mestres", owner: "Governança", tone: "amber" },
+  ];
+  return `
+    <section class="manual-page-heading"><div><span>Catálogo corporativo</span><h2>Indicadores</h2><p>KPIs estratégicos e operacionais com meta, fonte, periodicidade e responsável.</p></div><button class="primary-button" type="button"><i data-lucide="plus"></i> Novo indicador</button></section>
+    <section class="manual-card manual-filter-bar"><label><span>Eixo</span><select><option>Todos os eixos</option><option>Implantação</option><option>Operação</option><option>Pessoas</option><option>Qualidade</option></select></label><label><span>Período</span><select><option>Últimos 6 meses</option><option>Últimos 30 dias</option><option>Ano atual</option></select></label><label><span>Unidade</span><select><option>Toda a rede</option>${summary.units.map((unit) => `<option>${escapeHtml(unit.city)}</option>`).join("")}</select></label><button class="ghost-button" type="button"><i data-lucide="bookmark"></i> Salvar visão</button></section>
+    <div class="manual-indicator-grid">${indicators.map((indicator, index) => `<article class="manual-indicator-card ${indicator.tone}"><header><span>${String(index + 1).padStart(2, "0")}</span><i data-lucide="${["route", "circle-check-big", "triangle-alert", "flag", "badge-check", "database"][index]}"></i></header><small>${escapeHtml(indicator.name)}</small><strong>${escapeHtml(String(indicator.value))}</strong><em>${escapeHtml(indicator.target)}</em><div class="manual-indicator-line"><i style="--progress:${Math.min(100, 34 + index * 11)}%"></i></div><footer><span>Fonte: ${escapeHtml(indicator.source)}</span><span>Responsável: ${escapeHtml(indicator.owner)}</span></footer></article>`).join("")}</div>
+    <div class="manual-analytics-grid indicators-detail"><section class="manual-card span-2"><div class="manual-card-head"><div><h3>Série histórica</h3><p>Progresso médio de implantação versus meta.</p></div><span class="manual-period">Atualizado hoje</span></div>${manualTrendChart(summary.avg, true)}</section><section class="manual-card"><div class="manual-card-head"><div><h3>Composição do resultado</h3><p>Unidades que formam o indicador.</p></div></div><div class="manual-ranking-list">${summary.ranking.map((unit, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><b>${index + 1}</b><span><strong>${escapeHtml(unit.city)}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></span><em>${unitProgress(unit).percent}%</em></button>`).join("")}</div></section></div>
+  `;
+}
+
+function manualTrendChart(avg, showTarget = false) {
+  const values = [Math.max(12, avg - 28), Math.max(18, avg - 21), Math.max(24, avg - 16), Math.max(30, avg - 11), Math.max(35, avg - 6), avg];
+  const points = values.map((value, index) => `${index * 20},${100 - value}`).join(" ");
+  return `<div class="manual-line-chart"><div class="manual-chart-axis"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Evolução de implantação">${showTarget ? '<polyline class="target" points="0,10 20,10 40,10 60,10 80,10 100,10"></polyline>' : ""}<polyline class="area" points="0,100 ${points} 100,100"></polyline><polyline class="actual" points="${points}"></polyline>${values.map((value, index) => `<circle cx="${index * 20}" cy="${100 - value}" r="1.8"></circle>`).join("")}</svg><div class="manual-chart-months"><span>Mar</span><span>Abr</span><span>Mai</span><span>Jun</span><span>Jul</span><span>Ago</span></div></div>`;
+}
+
+function manualStatusDonut(summary) {
+  const total = Math.max(summary.units.length, 1);
+  const active = percentOf(summary.active.length, total);
+  const implementing = percentOf(summary.implementing.length, total);
+  return `<div class="manual-donut-layout"><div class="manual-donut" style="--active:${active}%;--implementing:${implementing}%"><span><strong>${summary.units.length}</strong><small>unidades</small></span></div><div class="manual-donut-legend"><span><i class="green"></i>Em operação <b>${summary.active.length}</b></span><span><i class="amber"></i>Em implantação <b>${summary.implementing.length}</b></span><span><i class="red"></i>Em risco <b>${summary.units.filter((unit) => ["Em atraso", "Implantação crítica"].includes(unitStatus(unit).label)).length}</b></span><span><i class="slate"></i>Planejadas <b>0</b></span></div></div>`;
+}
+
 function renderDashboard() {
   const units = roadmapUnits();
   const tasks = units.flatMap((unit) => (unit.tasks || []).map((task) => ({ unit, task })));
@@ -3342,12 +4246,12 @@ function executiveKpi(label, value, detail, icon, tone, progress) {
 function mapPointForUnit(unit, index) {
   const city = normalizeText(unit.city);
   const points = {
-    ananindeua: { x: 65.4, y: 17 },
-    cotia: { x: 69.1, y: 74 },
-    cuiaba: { x: 45.6, y: 53.5 },
-    imperatriz: { x: 67.6, y: 27.7 },
-    manaus: { x: 35.7, y: 21.5 },
-    uba: { x: 79.2, y: 67.7 },
+    ananindeua: { x: 57, y: 19 },
+    cotia: { x: 59, y: 70 },
+    cuiaba: { x: 45, y: 52 },
+    imperatriz: { x: 57, y: 32 },
+    manaus: { x: 43, y: 25 },
+    uba: { x: 63, y: 64 },
   };
   return points[city] || { x: 38 + (index * 7) % 34, y: 30 + (index * 9) % 42 };
 }
@@ -3371,63 +4275,33 @@ function renderImplantationDashboard() {
   const units = roadmapUnits();
   const visibleUnits = units;
   const tasks = visibleUnits.flatMap((unit) => unit.tasks);
-  const purchases = visibleUnits.flatMap((unit) => unit.purchases || []);
   const done = tasks.filter((task) => getStatus(task) === "Concluído").length;
   const inProgress = tasks.filter((task) => getStatus(task) === "Em Andamento").length;
   const pending = tasks.filter((task) => getStatus(task) === "Pendente").length;
   const avg = Math.round(visibleUnits.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(visibleUnits.length, 1));
-  const closedCred = accreditationCountForUnits(visibleUnits);
   const criticalUnits = visibleUnits.filter((unit) => ["Implantação crítica", "Em atraso"].includes(unitStatus(unit).label)).length;
-  const totalDocuments = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).documents.length, 0);
-  const pendingDocuments = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).pendingDocs, 0);
-  const openPendencies = visibleUnits.reduce((sum, unit) => sum + unitStats(unit).openPending, 0);
-  const statusCounts = unitStatusCounts(visibleUnits);
-  const blockers = visibleUnits.flatMap((unit) =>
-    unit.tasks
-      .filter((task) => getStatus(task) !== "Concluído")
-      .slice(0, 4)
-      .map((task) => ({ unit, task }))
-  );
+  const selected = selectedDepartmentUnit("implantation") || visibleUnits[0];
+  const selectedTasks = selected?.tasks || [];
+  const phases = [...new Set(selectedTasks.map((task) => task.phase).filter(Boolean))];
+  const milestones = selectedTasks.filter((task) => getStatus(task) !== "Concluído").slice(0, 8);
 
   return `
-    <section class="toolbar-panel dashboard-toolbar">
-      <div>
-        <span class="small-label">Visão executiva</span>
-        <strong>Todas as unidades</strong>
-      </div>
-      <div class="view-tabs">
-        ${dashboardTabButton("overview", "Visão geral")}
-        ${dashboardTabButton("roadmap", "Roadmap")}
-        ${dashboardTabButton("purchases", "Compras")}
-        ${dashboardTabButton("accreditation", "Credenciamentos")}
-      </div>
+    <div class="manual-kpi-grid five">
+      ${manualKpiCard("building-2", "Unidades na jornada", visibleUnits.length, `${criticalUnits} em atenção`, "slate")}
+      ${manualKpiCard("chart-no-axes-column-increasing", "Progresso médio", `${avg}%`, `${done} etapas concluídas`, "blue")}
+      ${manualKpiCard("loader-circle", "Em andamento", inProgress, "etapas em execução", "amber")}
+      ${manualKpiCard("circle-alert", "Pendentes", pending, "atividades em aberto", "red")}
+      ${manualKpiCard("flag", "Prontas", visibleUnits.filter((unit) => unitProgress(unit).percent >= 90).length, "90% ou mais", "green")}
+    </div>
+    <section class="manual-card journey-overview">
+      <div class="manual-card-head"><div><h3>Jornada de ${escapeHtml(selected?.city || "unidade")}</h3><p>Fases, dependências, marcos e critérios de prontidão.</p></div><div class="journey-summary"><strong>${unitProgress(selected).percent}%</strong><span>${escapeHtml(unitStatus(selected).label)}</span></div></div>
+      <div class="journey-timeline">${phases.map((phase, index) => { const phaseTasks = selectedTasks.filter((task) => task.phase === phase); const complete = phaseTasks.filter((task) => getStatus(task) === "Concluído").length; const percent = percentOf(complete, Math.max(phaseTasks.length, 1)); return `<article class="${percent === 100 ? "done" : index === phases.findIndex((item) => selectedTasks.some((task) => task.phase === item && getStatus(task) !== "Concluído")) ? "active" : ""}"><span>${String(index + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(phase)}</strong><small>${complete}/${phaseTasks.length} etapas</small><i style="--progress:${percent}%"></i></div></article>`; }).join("")}</div>
+      <div class="journey-readiness"><div><span>Prontidão para inauguração</span><strong>${unitProgress(selected).percent >= 90 ? "Critério percentual atingido" : "Em evolução"}</strong></div><p>${unitProgress(selected).percent >= 90 ? "Revise os critérios críticos e as evidências antes de liberar a unidade." : `Faltam ${Math.max(0, 90 - unitProgress(selected).percent)} pontos percentuais para a faixa mínima de prontidão.`}</p><button class="ghost-button" data-select-unit="${escapeHtml(selected.id)}" type="button">Abrir pasta da unidade</button></div>
     </section>
-
-    ${renderDashboardSummary(state.dashboardTab, visibleUnits, {
-      done,
-      inProgress,
-      pending,
-      avg,
-      criticalUnits,
-      totalDocuments,
-      pendingDocuments,
-      openPendencies,
-      statusCounts,
-      blockers,
-      purchases,
-      closedCred,
-      totalProcedures: visibleUnits.length * data.accreditation.procedures.length,
-    })}
-
-    ${renderDashboardTabContent(state.dashboardTab, visibleUnits, {
-      done,
-      inProgress,
-      pending,
-      blockers,
-      purchases,
-      closedCred,
-      totalProcedures: visibleUnits.length * data.accreditation.procedures.length,
-    })}
+    <div class="manual-journey-grid">
+      <section class="manual-card span-2"><div class="manual-card-head"><div><h3>Etapas que exigem atenção</h3><p>Próximos marcos, responsáveis e dependências.</p></div><button class="text-button" data-department-code="implantation" data-department-section="roadmap-de-implantacao" type="button">Abrir roadmap</button></div><div class="manual-table-scroll"><table class="manual-table"><thead><tr><th>Etapa</th><th>Fase</th><th>Status</th><th>Responsável</th><th>Prazo</th><th>Prioridade</th></tr></thead><tbody>${milestones.map((task) => `<tr><td><strong>${escapeHtml(task.process)}</strong></td><td>${escapeHtml(task.phase)}</td><td>${statusBadge(getStatus(task))}</td><td>${escapeHtml(task.owner || selected.owner || "Implantação")}</td><td>${formatDate(task.deadline)}</td><td><span class="manual-priority ${pendingPriority(task, selected).toLowerCase()}">${escapeHtml(pendingPriority(task, selected))}</span></td></tr>`).join("") || `<tr><td colspan="6">${empty("Nenhuma etapa aberta")}</td></tr>`}</tbody></table></div></section>
+      <aside class="manual-card"><div class="manual-card-head"><div><h3>Critérios de passagem</h3><p>Checkpoint antes da próxima fase.</p></div></div><div class="readiness-checklist"><label><input type="checkbox" ${unitStats(selected).pendingDocs === 0 ? "checked" : ""} disabled><span>Documentos obrigatórios válidos</span></label><label><input type="checkbox" ${unitStats(selected).pendingAccreditation === 0 ? "checked" : ""} disabled><span>Credenciamento aprovado</span></label><label><input type="checkbox" ${unitStats(selected).pendingTrainings === 0 ? "checked" : ""} disabled><span>Treinamentos essenciais concluídos</span></label><label><input type="checkbox" ${unitStats(selected).overduePending === 0 ? "checked" : ""} disabled><span>Sem pendências críticas vencidas</span></label></div></aside>
+    </div>
   `;
 }
 
@@ -3694,36 +4568,26 @@ function renderFranchises() {
   const criticalUnits = units.filter((unit) => ["Implantação crítica", "Em atraso"].includes(unitStatus(unit).label)).length;
 
   return `
-    <section class="implantation-hero-panel franchises-hero">
-      <div>
-        <span class="small-label">Pasta digital das franquias</span>
-        <h2>Carteira completa de unidades</h2>
-        <p>Selecione uma franquia para abrir a tela inteira com cronograma, documentos, treinamentos, atas, pendências, credenciamentos e campos de atualização operacional.</p>
-      </div>
-      <div class="status-overview-grid">
-        ${statusOverview("Total", units.length, "blue")}
-        ${statusOverview("Progresso médio", `${avg}%`, "green")}
-        ${statusOverview("Pendências", openPendencies, "yellow")}
-        ${statusOverview("Em risco", criticalUnits, "red")}
-      </div>
+    <section class="manual-page-heading">
+      <div><span>Rede de franquias</span><h2>Unidades</h2><p>Pasta digital única com cadastro, responsáveis, implantação, documentos, pendências e histórico.</p></div>
+      ${canCreateFranchise() ? '<button class="primary-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i> Nova unidade</button>' : ""}
     </section>
-
-    <section class="panel implantation-board">
-      <div class="panel-heading-row">
-        <div>
-          <span class="small-label">Franquias</span>
-          <h2>Painel de unidades</h2>
+    <div class="manual-kpi-grid four">
+      ${manualKpiCard("building-2", "Total de unidades", units.length, `${visibleUnits.length} no filtro atual`, "slate")}
+      ${manualKpiCard("route", "Progresso médio", `${avg}%`, "implantação da rede", "blue")}
+      ${manualKpiCard("circle-alert", "Pendências abertas", openPendencies, "exigem acompanhamento", "amber")}
+      ${manualKpiCard("triangle-alert", "Unidades em risco", criticalUnits, "atrasadas ou críticas", "red")}
+    </div>
+    <section class="manual-card manual-units-directory">
+      <div class="manual-card-head"><div><h3>Diretório de unidades</h3><p>Use os filtros e abra a pasta oficial da franquia.</p></div><div class="manual-directory-actions"><span class="badge info">${statusCounts["Em implantação"] || 0} em implantação</span><button class="ghost-button" type="button"><i data-lucide="sliders-horizontal"></i> Filtros</button></div></div>
+      <div class="manual-filter-tabs"><button class="active" type="button">Todas</button><button type="button">Planejadas</button><button type="button">Em implantação</button><button type="button">Prontas para inaugurar</button><button type="button">Em operação</button><button type="button">Em risco</button></div>
+      <div class="manual-units-layout">
+        <div class="manual-table-scroll">
+          <table class="manual-table units-table"><thead><tr><th>Unidade</th><th>Fase</th><th>Progresso</th><th>Prazo</th><th>Responsável</th><th>Risco</th><th></th></tr></thead><tbody>
+            ${visibleUnits.map((unit) => { const progress = unitProgress(unit); const status = unitStatus(unit); const risk = riskLevel(unit); return `<tr><td><strong>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unit.franchisee || unit.name || "Franquia 33Doctor")}</small></td><td>${statusBadge(status.label)}</td><td><div class="manual-progress"><i style="--progress:${progress.percent}%"></i><span>${progress.percent}%</span></div></td><td><strong>${formatDate(unit.openingDate)}</strong><small>${escapeHtml(formatDays(unit.openingDate))}</small></td><td>${escapeHtml(unit.owner || "Implantação")}</td><td><span class="${risk.className}">${escapeHtml(risk.label)}</span></td><td><button class="ghost-button compact" data-select-unit="${escapeHtml(unit.id)}" type="button">Abrir unidade</button></td></tr>`; }).join("") || `<tr><td colspan="7">${empty("Nenhuma unidade encontrada")}</td></tr>`}
+          </tbody></table>
         </div>
-        <div class="franchise-panel-actions">
-          <div class="badge-row">
-            <span class="badge info">${visibleUnits.length} visível(is)</span>
-            <span class="badge">${statusCounts["Em implantação"] || 0} em implantação</span>
-          </div>
-          ${canCreateFranchise() ? '<button class="primary-button add-franchise-button" data-open-view="new-unit" type="button"><i data-lucide="plus"></i> Adicionar Nova Franquia</button>' : ""}
-        </div>
-      </div>
-      <div class="franchise-grid">
-        ${visibleUnits.map((unit) => dashboardUnitRow(unit)).join("") || empty("Nenhuma unidade encontrada")}
+        <aside class="manual-network-mini-map"><div><span>Distribuição da rede</span><strong>${units.length} unidades</strong></div><div class="map-stage"><img src="./assets/brazil-states.svg" alt="Mapa do Brasil" />${units.map((unit, index) => { const point = mapPointForUnit(unit, index); return `<button style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" title="${escapeHtml(unit.city)}"><span></span></button>`; }).join("")}</div><ul>${units.slice(0, 6).map((unit) => `<li><i></i><span>${escapeHtml(unit.city)} ${escapeHtml(unit.state || "")}</span><b>${unitProgress(unit).percent}%</b></li>`).join("")}</ul></aside>
       </div>
     </section>
   `;
@@ -4063,8 +4927,8 @@ function renderUnitAccreditation(unit, stats) {
       { name: "notes", label: "Observações", type: "textarea", placeholder: "Histórico, retorno do órgão, próximos passos" },
     ], "Adicionar credenciamento")}
     <div class="table-wrap">
-      <table class="workspace-table compact-table">
-        <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Anexos</th><th>Observações</th><th>Ações</th></tr></thead>
+      <table class="workspace-table compact-table accreditation-table">
+        <thead><tr><th>Tipo</th><th>Status</th><th>Solicitação</th><th>Aprovação</th><th>Responsável</th><th>Prestadores e contratos</th><th>Observações</th><th>Ações</th></tr></thead>
         <tbody>
           ${rows.map((item) => `
             <tr data-accreditation-row data-accreditation-id="${escapeHtml(item.id)}" data-unit-id="${escapeHtml(item.unitId || unit.id)}" data-procedure-id="${escapeHtml(item.procedureId || "")}">
@@ -4073,7 +4937,7 @@ function renderUnitAccreditation(unit, stats) {
               <td><input class="table-input" data-accreditation-request-date type="date" value="${escapeHtml(item.requestDate || "")}" /></td>
               <td><input class="table-input" data-accreditation-approval-date type="date" value="${escapeHtml(item.approvalDate || "")}" /></td>
               <td><input class="table-input" data-accreditation-owner type="text" value="${escapeHtml(item.owner || unit.owner || unit.ownerName || "Credenciamento")}" /></td>
-              <td>${attachmentControl(item.attachments, unit, "credenciamentos", "data-accreditation-attachments")}</td>
+              <td class="accreditation-contracts-cell">${accreditationContractsControl(item, unit)}</td>
               <td><textarea class="table-textarea" data-accreditation-notes rows="2" placeholder="Observações">${escapeHtml(item.notes || "")}</textarea></td>
               <td>${accreditationActions(item)}</td>
             </tr>
@@ -4316,6 +5180,91 @@ function accreditationStatusSelect(item) {
   `;
 }
 
+function accreditationContractEntry(contract, unit, index = 0) {
+  const id = contract.id || `contract-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `
+    <div class="accreditation-contract-entry" data-accreditation-contract data-contract-id="${escapeHtml(id)}">
+      <label class="accreditation-provider-field">
+        <span>Prestador ${index + 1}</span>
+        <input class="table-input" data-accreditation-provider-name type="text" value="${escapeHtml(contract.providerName || "")}" placeholder="Nome da clínica ou laboratório" />
+      </label>
+      <div class="accreditation-contract-file">
+        <span>Contrato</span>
+        ${attachmentControl(contract.attachment || "", unit, "credenciamentos", "data-accreditation-contract-attachment")}
+      </div>
+      <button class="icon-button accreditation-contract-remove" data-remove-accreditation-contract type="button" aria-label="Remover este prestador e contrato" title="Remover prestador">
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>
+  `;
+}
+
+function accreditationContractsControl(item, unit) {
+  const contracts = accreditationContracts(item.attachments);
+  return `
+    <div class="accreditation-contracts" data-accreditation-contracts>
+      <div class="accreditation-contract-list" data-accreditation-contract-list>
+        ${contracts.map((contract, index) => accreditationContractEntry(contract, unit, index)).join("")}
+      </div>
+      <p class="accreditation-contract-empty" data-accreditation-contract-empty${contracts.length ? " hidden" : ""}>Nenhum prestador ou contrato adicionado.</p>
+      <button class="link-button accreditation-contract-add" data-add-accreditation-contract type="button">
+        <i data-lucide="plus"></i>Adicionar prestador/contrato
+      </button>
+    </div>
+  `;
+}
+
+function renumberAccreditationContracts(container) {
+  const entries = [...container.querySelectorAll("[data-accreditation-contract]")];
+  entries.forEach((entry, index) => {
+    const label = entry.querySelector(".accreditation-provider-field > span");
+    if (label) label.textContent = `Prestador ${index + 1}`;
+  });
+  const emptyState = container.querySelector("[data-accreditation-contract-empty]");
+  if (emptyState) emptyState.hidden = entries.length > 0;
+}
+
+function addAccreditationContractEntry(button) {
+  const row = button.closest("[data-accreditation-row]");
+  const container = button.closest("[data-accreditation-contracts]");
+  const list = container?.querySelector("[data-accreditation-contract-list]");
+  const unit = unitForId(row?.dataset.unitId);
+  if (!row || !container || !list || !unit) return;
+  const index = list.querySelectorAll("[data-accreditation-contract]").length;
+  list.insertAdjacentHTML("beforeend", accreditationContractEntry({}, unit, index));
+  renumberAccreditationContracts(container);
+  refreshIcons();
+  list.lastElementChild?.querySelector("[data-accreditation-provider-name]")?.focus();
+}
+
+async function removeAccreditationContractEntry(button) {
+  const entry = button.closest("[data-accreditation-contract]");
+  const container = button.closest("[data-accreditation-contracts]");
+  const attachment = entry?.querySelector("[data-accreditation-contract-attachment]")?.value || "";
+  const parsed = parseFileReference(attachment);
+  if (!entry || !container) return;
+  const providerName = entry.querySelector("[data-accreditation-provider-name]")?.value.trim() || "";
+  if ((parsed.name || providerName) && !window.confirm("Remover este prestador e o contrato da lista?")) return;
+
+  const control = entry.querySelector("[data-attachment-control]");
+  if (parsed.id && supabaseEnabled && state.auth?.token && control?.dataset.tenantId) {
+    try {
+      await storageRequest("delete", {
+        tenantId: control.dataset.tenantId,
+        unitId: control.dataset.unitId,
+        fileId: parsed.id,
+      });
+    } catch (error) {
+      alert(error.message || "Não foi possível remover o arquivo do contrato.");
+      return;
+    }
+  }
+
+  entry.remove();
+  renumberAccreditationContracts(container);
+  showOperationToast("Prestador removido da lista. Salve os credenciamentos para confirmar.");
+}
+
 function manualStatusSelect(item, options) {
   const current = item.status || options[0] || "Pendente";
   const mergedOptions = current && !options.includes(current) ? [...options, current] : options;
@@ -4486,17 +5435,24 @@ async function savePendencyChanges(button) {
 async function saveAccreditationChanges(button) {
   const scope = button.closest(".unit-tab-panel") || app;
   const rows = [...scope.querySelectorAll("[data-accreditation-row]")];
-  const updates = rows.map((row) => ({
-    id: row.dataset.accreditationId,
-    unitId: row.dataset.unitId,
-    procedureId: row.dataset.procedureId,
-    status: row.querySelector("[data-accreditation-status]")?.value || "Pendente",
-    requestDate: row.querySelector("[data-accreditation-request-date]")?.value || "",
-    approvalDate: row.querySelector("[data-accreditation-approval-date]")?.value || "",
-    owner: row.querySelector("[data-accreditation-owner]")?.value.trim() || "Credenciamento",
-    attachments: row.querySelector("[data-accreditation-attachments]")?.value.trim() || "Sem anexo",
-    notes: row.querySelector("[data-accreditation-notes]")?.value.trim() || "",
-  }));
+  const updates = rows.map((row) => {
+    const contracts = [...row.querySelectorAll("[data-accreditation-contract]")].map((entry) => ({
+      id: entry.dataset.contractId,
+      providerName: entry.querySelector("[data-accreditation-provider-name]")?.value.trim() || "",
+      attachment: entry.querySelector("[data-accreditation-contract-attachment]")?.value.trim() || "",
+    }));
+    return {
+      id: row.dataset.accreditationId,
+      unitId: row.dataset.unitId,
+      procedureId: row.dataset.procedureId,
+      status: row.querySelector("[data-accreditation-status]")?.value || "Pendente",
+      requestDate: row.querySelector("[data-accreditation-request-date]")?.value || "",
+      approvalDate: row.querySelector("[data-accreditation-approval-date]")?.value || "",
+      owner: row.querySelector("[data-accreditation-owner]")?.value.trim() || "Credenciamento",
+      attachments: serializeAccreditationContracts(contracts),
+      notes: row.querySelector("[data-accreditation-notes]")?.value.trim() || "",
+    };
+  });
 
   button.disabled = true;
   const originalText = button.textContent;
@@ -4939,6 +5895,7 @@ function accreditationForUnit(unit) {
         group: procedure.group,
         name: procedure.name,
         status: override.status ?? saved.status ?? procedure.statuses?.[unit.id] ?? "",
+        pipelineStage: override.pipelineStage ?? saved.pipelineStage ?? "",
         requestDate: override.requestDate ?? saved.requestDate ?? "",
         approvalDate: override.approvalDate ?? saved.approvalDate ?? "",
         owner: override.owner ?? saved.owner ?? unit.owner ?? unit.ownerName ?? "Credenciamento",
@@ -5605,8 +6562,13 @@ function downloadCsv(filename, rows) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.hidden = true;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function csvCell(value) {
@@ -5639,6 +6601,15 @@ function activateNav(view) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.view === view);
   });
+  const active = document.querySelector(`.nav-item[data-view="${CSS.escape(view)}"]`);
+  const folder = active?.closest("[data-nav-folder]");
+  if (folder) {
+    const key = folder.dataset.navFolder;
+    folder.classList.add("open");
+    folder.querySelector(".nav-folder-trigger")?.setAttribute("aria-expanded", "true");
+    state.navFolders[key] = true;
+    writeStorage("navFolders", state.navFolders);
+  }
 }
 
 function escapeHtml(value) {
@@ -5661,6 +6632,1429 @@ function slug(value) {
 
 function empty(message) {
   return `<div class="empty">${escapeHtml(message)}</div>`;
+}
+
+const approvedModuleBlueprints = {
+  executive: {
+    title: "Painel executivo", eyebrow: "Visão estratégica", icon: "chart-no-axes-combined",
+    description: "Decisões, responsáveis, prazos e acompanhamento consolidado da rede.",
+    action: "Nova decisão", exportLabel: "Exportar",
+    tabs: ["Visão da rede", "Expansão", "Operação", "Financeiro", "Pessoas", "Governança"],
+    filters: ["Período", "Região", "Unidade"],
+    metrics: [], primary: "Decisões executivas", secondary: "Status do workflow", attention: "Requer atenção",
+    lower: [], quick: ["Nova decisão executiva"]
+  },
+  credentialing: {
+    title: "Credenciamento", eyebrow: "Rede assistencial", icon: "badge-check",
+    description: "Pipeline de prestadores, cobertura, documentação e aprovações da rede de atendimento.",
+    action: "Novo credenciamento", exportLabel: "Exportar",
+    tabs: ["Pipeline", "Prestadores", "Cobertura da rede", "Mapa"],
+    filters: ["Unidade", "Categoria", "Responsável"],
+    metrics: [["Parceiros ativos", "records", "badge-check", "green"], ["Em negociação", "progress", "handshake", "amber"], ["Aguardando documentos", "open", "file-clock", "blue"], ["Em análise", "critical", "scan-search", "red"]],
+    primary: "Pipeline de credenciamento", secondary: "Cobertura prioritária", attention: "Requer atenção",
+    lower: ["Cobertura da rede", "Últimas movimentações", "Ações rápidas"],
+    quick: ["Solicitar documentos", "Agendar análise", "Registrar negociação"]
+  },
+  operation: {
+    title: "Operação", eyebrow: "Rotina das unidades", icon: "clipboard-check",
+    description: "Saúde operacional, rotinas, auditorias, ocorrências e planos de ação das unidades.",
+    action: "Nova ocorrência", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Rotinas", "Checklists", "Ocorrências", "Planos de ação"],
+    filters: ["Unidade", "Status", "Período"],
+    metrics: [["Unidades monitoradas", "units", "building-2", "blue"], ["Saúde operacional", "average", "activity", "green"], ["Checklists hoje", "records", "clipboard-check", "amber"], ["Não conformidades", "critical", "circle-x", "red"]],
+    primary: "Saúde operacional das unidades", secondary: "Prioridades operacionais", attention: "Rotinas de hoje",
+    lower: ["Evolução da saúde da rede", "Não conformidades", "Ações rápidas"],
+    quick: ["Abrir checklist", "Registrar ocorrência", "Criar plano de ação"]
+  },
+  finance: {
+    title: "Financeiro", eyebrow: "Controle e previsibilidade", icon: "wallet-cards",
+    description: "Fluxo de caixa, contas, royalties, repasses e conciliações por unidade.",
+    action: "Novo lançamento", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Contas a receber", "Contas a pagar", "Royalties e taxas", "Repasses", "Inadimplência", "Fluxo de caixa", "Conciliação"],
+    filters: ["Competência", "Unidade", "Centro de custo"],
+    metrics: [["Saldo disponível", "financialBalance", "landmark", "green"], ["Contas a receber", "financialReceivable", "arrow-down-left", "blue"], ["Contas a pagar", "financialPayable", "arrow-up-right", "amber"], ["Recebido no mês", "amount", "circle-dollar-sign", "green"]],
+    primary: "Fluxo de caixa", secondary: "Próximos vencimentos", attention: "Atenção financeira",
+    lower: ["Receitas por categoria", "Movimentações financeiras", "Posição das unidades"],
+    quick: ["Lançar recebimento", "Lançar pagamento", "Conciliar movimento"]
+  },
+  dp: {
+    title: "Departamento Pessoal", eyebrow: "Rotina trabalhista", icon: "contact-round",
+    description: "Colaboradores, admissões, férias, jornada, benefícios e movimentações trabalhistas.",
+    action: "Nova admissão", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Colaboradores", "Admissões", "Folha", "Férias", "Afastamentos", "Obrigações"],
+    filters: ["Unidade", "Departamento", "Status"],
+    metrics: [["Colaboradores ativos", "people", "users", "blue"], ["Admissões em curso", "records", "user-plus", "green"], ["Férias próximas", "progress", "calendar-days", "amber"], ["Eventos pendentes", "open", "triangle-alert", "red"]],
+    primary: "Situação dos colaboradores", secondary: "Prazos e obrigações", attention: "Indicadores trabalhistas",
+    lower: ["Movimentação de pessoal", "Colaboradores e eventos", "Indicadores trabalhistas"],
+    quick: ["Cadastrar colaborador", "Programar férias", "Registrar movimentação"]
+  },
+  hr: {
+    title: "Recursos Humanos", eyebrow: "Pessoas e cultura", icon: "users",
+    description: "Planejamento do quadro, recrutamento, desenvolvimento, clima e sucessão.",
+    action: "Nova vaga", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Vagas", "Onboarding", "Desempenho", "Clima", "Desenvolvimento", "Sucessão"],
+    filters: ["Unidade", "Departamento", "Período"],
+    metrics: [["Headcount", "people", "users", "blue"], ["Vagas abertas", "records", "briefcase-business", "green"], ["Em onboarding", "progress", "user-check", "amber"], ["Avaliações pendentes", "open", "clipboard-list", "red"]],
+    primary: "Pipeline de recrutamento", secondary: "Agenda de RH", attention: "Desempenho e clima",
+    lower: ["Turnover e admissões", "Vagas e ciclos", "Desempenho e clima"],
+    quick: ["Abrir vaga", "Adicionar candidato", "Criar avaliação"]
+  },
+  projects: {
+    title: "Projetos", eyebrow: "Portfólio e entregas", icon: "folder-kanban",
+    description: "Projetos, cronogramas, marcos, orçamento, riscos e responsáveis da rede.",
+    action: "Novo projeto", exportLabel: "Exportar",
+    tabs: ["Portfólio", "Em execução", "Aprovações", "Riscos", "Marcos", "Concluídos"],
+    filters: ["Projeto", "Área", "Status"],
+    metrics: [["Projetos ativos", "records", "folder-kanban", "blue"], ["No prazo", "completed", "circle-check", "green"], ["Em atenção", "progress", "clock", "amber"], ["Críticos", "critical", "triangle-alert", "red"]],
+    primary: "Portfólio de projetos", secondary: "Próximos marcos", attention: "Prioridades do portfólio",
+    lower: ["Saúde do portfólio", "Orçamento do portfólio", "Ações rápidas"],
+    quick: ["Criar tarefa", "Registrar marco", "Atualizar orçamento"]
+  },
+  quality: {
+    title: "Qualidade e Processos", eyebrow: "Padrão operacional", icon: "sparkles",
+    description: "Arquitetura de processos, auditorias, não conformidades e melhoria contínua.",
+    action: "Nova auditoria", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Arquitetura de processos", "Auditorias", "Não conformidades", "Planos de ação", "POPs"],
+    filters: ["Macroprocesso", "Área", "Status"],
+    metrics: [["Conformidade da rede", "average", "badge-check", "green"], ["Auditorias previstas", "records", "clipboard-check", "blue"], ["Não conformidades", "open", "circle-x", "amber"], ["Críticas", "critical", "triangle-alert", "red"]],
+    primary: "Arquitetura de processos", secondary: "Agenda de auditoria", attention: "Mapa de eficácia",
+    lower: ["Conformidade por tema", "Não conformidades e planos", "Mapa de eficácia"],
+    quick: ["Mapear processo", "Abrir auditoria", "Criar plano de ação"]
+  },
+  documentation: {
+    title: "Documentos", eyebrow: "Conhecimento e governança", icon: "files",
+    description: "Bibliotecas, solicitações, assinaturas, ciência e organização documental da rede.",
+    action: "Novo documento", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Biblioteca", "Em revisão", "Aprovações", "Vencimentos", "Modelos"],
+    filters: ["Categoria", "Unidade", "Status"],
+    metrics: [["Documentos ativos", "records", "files", "blue"], ["Versões vigentes", "completed", "file-check-2", "green"], ["Em revisão", "progress", "signature", "amber"], ["A vencer", "critical", "triangle-alert", "red"]],
+    primary: "Bibliotecas", secondary: "Documentos recentes", attention: "Requer atenção",
+    lower: ["Solicitações recentes", "Vencimentos", "Atividade recente"],
+    quick: ["Enviar documento", "Criar pasta", "Solicitar assinatura"]
+  },
+  contracts: {
+    title: "Contratos", eyebrow: "Ciclo contratual", icon: "file-signature",
+    description: "Minutas, aprovações, assinaturas, obrigações, reajustes e renovações.",
+    action: "Nova solicitação", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Solicitações", "Em elaboração", "Aprovações", "Assinaturas", "Vigentes", "Renovações", "Encerrados"],
+    filters: ["Categoria", "Unidade", "Status"],
+    metrics: [["Contratos ativos", "records", "file-signature", "blue"], ["Em assinatura", "progress", "signature", "green"], ["Aprovações pendentes", "open", "clock", "amber"], ["A vencer", "critical", "triangle-alert", "red"]],
+    primary: "Ciclo contratual", secondary: "Vencimentos e renovações", attention: "Aprovações",
+    lower: ["Gestão de obrigações", "Agenda contratual"],
+    quick: ["Cadastrar contrato", "Enviar para aprovação", "Registrar renovação"]
+  },
+  compliance: {
+    title: "Compliance", eyebrow: "Riscos e conformidade", icon: "shield-check",
+    description: "Obrigações, controles, políticas, LGPD, canal de ética e planos de ação.",
+    action: "Nova obrigação", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Obrigações", "Riscos", "Controles", "Due diligence", "Políticas", "Incidentes", "Privacidade"],
+    filters: ["Unidade", "Categoria", "Status"],
+    metrics: [["Índice de conformidade", "average", "shield-check", "green"], ["Obrigações ativas", "records", "circle-check", "blue"], ["Controles ineficazes", "open", "clock", "amber"], ["Due diligences", "completed", "scan-search", "red"]],
+    primary: "Conformidade por dimensão", secondary: "Situação das unidades", attention: "Requer atenção",
+    lower: ["Ranking de conformidade", "Planos de ação", "Canal de ética"],
+    quick: ["Cadastrar obrigação", "Registrar risco", "Abrir plano de ação"]
+  },
+  communication: {
+    title: "Comunicação", eyebrow: "Rede conectada", icon: "messages-square",
+    description: "Comunicados, campanhas, calendário editorial, públicos e leitura por unidade.",
+    action: "Novo comunicado", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Comunicados", "Rascunhos", "Programados", "Enviados", "Ciências", "Modelos"],
+    filters: ["Público", "Canal", "Status"],
+    metrics: [["Comunicados no mês", "records", "megaphone", "blue"], ["Programados", "progress", "calendar-clock", "amber"], ["Taxa de entrega", "average", "send", "green"], ["Taxa de leitura", "completed", "mail-check", "green"]],
+    primary: "Desempenho da comunicação", secondary: "Agenda de publicação", attention: "Comunicados recentes",
+    lower: ["Alcance por canal", "Falhas de entrega", "Público e ciência"],
+    quick: ["Criar comunicado", "Agendar publicação", "Adicionar mídia"]
+  },
+  training: {
+    title: "Treinamentos", eyebrow: "Desenvolvimento da rede", icon: "graduation-cap",
+    description: "Cursos, trilhas, turmas, participantes, avaliações e certificados.",
+    action: "Nova turma", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Catálogo", "Trilhas", "Turmas", "Participantes", "Avaliações", "Certificados"],
+    filters: ["Público", "Unidade", "Status"],
+    metrics: [["Cursos ativos", "records", "book-open-check", "blue"], ["Trilhas obrigatórias", "progress", "route", "amber"], ["Participantes", "people", "users", "blue"], ["Conclusão média", "average", "award", "green"]],
+    primary: "Progresso das trilhas prioritárias", secondary: "Agenda de treinamentos", attention: "Requer atenção",
+    lower: ["Situação das equipes", "Capacitação por unidade", "Prontidão da implantação"],
+    quick: ["Criar curso", "Abrir turma", "Emitir certificado"]
+  },
+  support: {
+    title: "Chamados e suporte", eyebrow: "Atendimento à rede", icon: "headset",
+    description: "Chamados, filas, SLA, incidentes críticos, conhecimento e qualidade do atendimento.",
+    action: "Novo chamado", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Minha fila", "Todos os chamados", "Incidentes", "SLAs", "Base de conhecimento"],
+    filters: ["Departamento", "Unidade", "Status"],
+    metrics: [["Chamados abertos", "open", "messages-square", "blue"], ["Novos hoje", "records", "circle-plus", "blue"], ["Em atendimento", "progress", "headphones", "amber"], ["Aguardando retorno", "critical", "clock", "red"]],
+    primary: "Fluxo de chamados", secondary: "Desempenho de SLA", attention: "Prioridades",
+    lower: ["Chamados por categoria", "Qualidade do atendimento", "Base de conhecimento"],
+    quick: ["Abrir chamado", "Consultar base", "Registrar incidente"]
+  },
+  settings: {
+    title: "Configurações", eyebrow: "Administração da plataforma", icon: "settings",
+    description: "Organização, usuários, permissões, módulos, integrações, segurança e auditoria.",
+    action: "Novo usuário", exportLabel: "Exportar",
+    tabs: ["Visão geral", "Organização", "Usuários", "Perfis e permissões", "Workflows", "Notificações", "Integrações", "Segurança", "Logs"],
+    filters: ["Unidade", "Perfil", "Status"],
+    metrics: [["Usuários ativos", "people", "users", "blue"], ["Perfis configurados", "records", "contact-round", "green"], ["Workflows ativos", "progress", "workflow", "amber"], ["Integrações", "completed", "plug", "red"]],
+    primary: "Central de configuração", secondary: "Saúde do sistema", attention: "Requer ação",
+    lower: ["Usuários e escopos", "Requer ação", "Eventos de auditoria"],
+    quick: ["Adicionar usuário", "Criar perfil", "Revisar permissões"]
+  }
+};
+
+function approvedContext(moduleCode) {
+  const units = roadmapUnits();
+  const tasks = units.flatMap((unit) => (unit.tasks || []).map((task) => ({ unit, task })));
+  const records = allOperationalRecords().filter((record) => String(record.recordType || "").includes(`:${moduleCode}:`) && !record.hidden);
+  const completed = records.filter((record) => ["Concluído", "Aprovado", "Fechado", "Vigente"].includes(record.status)).length;
+  const roadmapScope = ["dashboard", "executive", "franchises", "implantation"].includes(moduleCode);
+  const open = roadmapScope
+    ? tasks.filter(({ task }) => getStatus(task) !== "Concluído")
+    : records.filter((record) => !["Concluído", "Aprovado", "Fechado", "Vigente"].includes(record.status)).map((task) => ({ unit: unitForId(task.unitId), task }));
+  const critical = open.filter(({ unit, task }) => String(task.priority || "").toLowerCase() === "alta" || (roadmapScope && pendingPriority(task, unit) === "Alta"));
+  const average = Math.round(units.reduce((sum, unit) => sum + unitProgress(unit).percent, 0) / Math.max(units.length, 1));
+  const amount = records.reduce((sum, record) => sum + Number(record.amount || record.value || 0), 0);
+  return { units, tasks, records, completed, open, critical, average, amount };
+}
+
+function approvedMetricValue(key, context) {
+  const formatMoney = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(value || 0);
+  const values = {
+    units: context.units.length,
+    records: context.records.length,
+    completed: context.completed,
+    open: context.open.length,
+    critical: context.critical.length,
+    progress: context.records.filter((record) => ["Em Andamento", "Em análise", "Em negociação"].includes(record.status)).length,
+    average: `${context.average}%`,
+    people: state.adminData?.users?.length || context.records.filter((record) => record.owner).length,
+    amount: formatMoney(context.amount),
+    financialBalance: formatMoney(context.amount),
+    financialReceivable: formatMoney(context.records.filter((record) => String(record.recordType).includes("receber")).reduce((sum, record) => sum + Number(record.amount || 0), 0)),
+    financialPayable: formatMoney(context.records.filter((record) => String(record.recordType).includes("pagar")).reduce((sum, record) => sum + Number(record.amount || 0), 0)),
+  };
+  return values[key] ?? 0;
+}
+
+function approvedFilterOptions(label, context) {
+  if (/unidade/i.test(label)) return [["all", "Todas as unidades"], ...context.units.map((unit) => [unit.id, `${unit.city} ${unit.state || ""}`])];
+  if (/status/i.test(label)) return [["all", "Todos os status"], ["Pendente", "Pendente"], ["Em Andamento", "Em andamento"], ["Concluído", "Concluído"], ["Em risco", "Em risco"]];
+  if (/responsável/i.test(label)) return [["all", "Todos os responsáveis"], ...[...new Set(context.units.map((unit) => unit.owner || "Implantação"))].map((owner) => [owner, owner])];
+  if (/período|competência/i.test(label)) return [["all", "Período atual"], ["30", "Últimos 30 dias"], ["90", "Últimos 90 dias"], ["year", "Ano atual"]];
+  return [["all", `Todos: ${label.toLowerCase()}`], ["active", "Ativos"], ["attention", "Requer atenção"]];
+}
+
+function renderApprovedFilters(moduleCode, blueprint, context) {
+  const values = state.approvedFilters[moduleCode] || {};
+  return `<section class="approved-filterbar">
+    <label class="approved-search"><i data-lucide="search"></i><input data-approved-filter="${escapeHtml(moduleCode)}" data-approved-filter-key="search" type="search" value="${escapeHtml(values.search || "")}" placeholder="Buscar em ${escapeHtml(blueprint.title.toLowerCase())}" /></label>
+    ${blueprint.filters.map((label) => `<label><span>${escapeHtml(label)}</span><select data-approved-filter="${escapeHtml(moduleCode)}" data-approved-filter-key="${slug(label)}">${approvedFilterOptions(label, context).map(([value, text]) => `<option value="${escapeHtml(value)}"${values[slug(label)] === value ? " selected" : ""}>${escapeHtml(text)}</option>`).join("")}</select></label>`).join("")}
+  </section>`;
+}
+
+const approvedMetricExtensions = {
+  credentialing: [["Cobertura da rede", "average", "map-pinned", "blue"], ["Aguardando análise", "progress", "scan-search", "amber"], ["Prazo crítico", "critical", "clock-alert", "red"]],
+  operation: [["Auditorias abertas", "records", "clipboard-search", "blue"], ["Planos de ação", "progress", "list-checks", "amber"], ["Conformidade", "average", "shield-check", "green"]],
+  finance: [["Conciliações", "records", "landmark", "blue"], ["Royalties", "progress", "receipt-text", "amber"], ["Saúde financeira", "average", "gauge", "green"]],
+  dp: [["Benefícios ativos", "records", "heart-handshake", "green"], ["Movimentações", "progress", "arrow-left-right", "amber"], ["Documentos vencidos", "critical", "file-warning", "red"]],
+  hr: [["Onboardings", "progress", "user-check", "green"], ["Avaliações", "records", "clipboard-list", "blue"], ["Clima da rede", "average", "smile", "green"]],
+  projects: [["Tarefas vencidas", "critical", "calendar-x", "red"], ["Marcos próximos", "progress", "milestone", "amber"], ["Saúde do portfólio", "average", "gauge", "green"]],
+  quality: [["Auditorias", "records", "clipboard-check", "blue"], ["Riscos abertos", "critical", "shield-alert", "red"], ["Eficiência", "average", "gauge", "green"]],
+  documentation: [["Solicitações", "progress", "inbox", "amber"], ["Assinaturas", "records", "signature", "blue"], ["Conformidade", "average", "shield-check", "green"]],
+  contracts: [["Em assinatura", "progress", "signature", "amber"], ["Obrigações", "open", "list-checks", "blue"], ["Conformidade", "average", "shield-check", "green"]],
+  compliance: [["Políticas vigentes", "records", "book-check", "blue"], ["Planos de ação", "progress", "list-checks", "amber"], ["Conformidade geral", "average", "gauge", "green"]],
+  communication: [["Campanhas ativas", "progress", "send", "blue"], ["Leituras pendentes", "open", "mail-warning", "amber"], ["Engajamento", "average", "activity", "green"]],
+  training: [["Participantes", "people", "users", "blue"], ["Certificados", "completed", "award", "green"], ["Adesão", "average", "gauge", "green"]],
+  support: [["Em atendimento", "progress", "headphones", "blue"], ["Tempo médio", "average", "timer", "amber"], ["Satisfação", "completed", "star", "green"]],
+  settings: [["Perfis de acesso", "records", "contact-round", "blue"], ["Ações pendentes", "open", "clock-3", "amber"], ["Saúde do sistema", "average", "shield-check", "green"]],
+};
+
+function renderApprovedMetrics(moduleCode, blueprint, context) {
+  const metrics = blueprint.metrics.slice(0, 4);
+  return `<div class="approved-metric-grid reference-four">${metrics.map(([label, key, icon, tone]) => `<button class="approved-metric ${tone}" data-approved-metric="${escapeHtml(moduleCode)}" type="button"><span><i data-lucide="${icon}"></i></span><div><small>${escapeHtml(label)}</small><strong>${escapeHtml(String(approvedMetricValue(key, context)))}</strong><em>${tone === "red" ? "requer acompanhamento" : "atualizado agora"}</em></div><div class="approved-mini-trend"><i></i><i></i><i></i><i></i></div></button>`).join("")}</div>`;
+}
+
+function approvedActiveTab(moduleCode, blueprint) {
+  const requested = state.approvedTabs[moduleCode];
+  return blueprint.tabs.includes(requested) ? requested : blueprint.tabs[0];
+}
+
+function renderApprovedTabs(moduleCode, blueprint) {
+  const active = approvedActiveTab(moduleCode, blueprint);
+  return `<nav class="approved-tabs" role="tablist" aria-label="Áreas de ${escapeHtml(blueprint.title)}">${blueprint.tabs.map((tab) => `<button class="${active === tab ? "active" : ""}" data-approved-tab="${escapeHtml(moduleCode)}" data-approved-tab-value="${escapeHtml(tab)}" type="button" role="tab" aria-selected="${active === tab}">${escapeHtml(tab)}</button>`).join("")}</nav>`;
+}
+
+function approvedFilteredUnits(moduleCode, context) {
+  const filters = state.approvedFilters[moduleCode] || {};
+  const search = String(filters.search || "").toLowerCase();
+  const unitFilter = filters.unidade || "all";
+  return context.units.filter((unit) => (unitFilter === "all" || unit.id === unitFilter) && (!search || [unit.city, unit.state, unit.name, unit.franchisee, unit.owner].join(" ").toLowerCase().includes(search)));
+}
+
+function approvedBars(units) {
+  return `<div class="approved-bars">${units.slice(0, 7).map((unit) => { const progress = unitProgress(unit).percent; return `<div><span>${escapeHtml(unit.city)}</span><i><b style="width:${progress}%"></b></i><strong>${progress}%</strong></div>`; }).join("") || empty("Nenhuma unidade no filtro selecionado.")}</div>`;
+}
+
+function approvedAttention(context, limit = 5) {
+  return `<div class="approved-attention-list">${context.critical.slice(0, limit).map(({ unit, task }) => { const linkedUnit = unit || unitForId(task.unitId) || { id: "", city: "Rede 33Doctor" }; return `<button ${linkedUnit.id ? `data-select-unit="${escapeHtml(linkedUnit.id)}"` : ""} type="button"><span class="approved-alert-icon"><i data-lucide="triangle-alert"></i></span><span><strong>${escapeHtml(task.process || task.title || task.name || "Registro prioritário")}</strong><small>${escapeHtml(linkedUnit.city)} · ${escapeHtml(task.phase || task.category || "Acompanhamento")}</small></span><i data-lucide="chevron-right"></i></button>`; }).join("") || `<div class="approved-positive"><i data-lucide="circle-check"></i><span><strong>Nenhum item crítico</strong><small>Os registros atuais estão dentro do acompanhamento previsto.</small></span></div>`}</div>`;
+}
+
+function approvedRecentTable(moduleCode, blueprint, context) {
+  const active = approvedActiveTab(moduleCode, blueprint);
+  const records = context.records.slice(0, 7);
+  const fallback = approvedFilteredUnits(moduleCode, context).slice(0, 7).map((unit) => ({
+    title: unit.name || unit.city, owner: unit.owner || "Equipe responsável", deadline: unit.openingDate,
+    status: unitStatus(unit).label, notes: `Progresso de ${unitProgress(unit).percent}%`, unitId: unit.id,
+  }));
+  const rows = records.length ? records : fallback;
+  return `<div class="approved-table-wrap"><table class="approved-table"><thead><tr><th>${escapeHtml(active)}</th><th>Unidade/Responsável</th><th>Prazo</th><th>Status</th><th>Atualização</th><th>Ações</th></tr></thead><tbody>${rows.map((record) => {
+    const persisted = Boolean(record.recordId && record.recordType && record.unitId);
+    const actions = persisted
+      ? `<div class="approved-row-actions"><button class="icon-button compact" data-approved-edit="${escapeHtml(moduleCode)}" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button" title="Editar registro" aria-label="Editar ${escapeHtml(record.title || "registro")}"><i data-lucide="pencil"></i></button><button class="icon-button compact danger" data-approved-delete data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button" title="Excluir registro" aria-label="Excluir ${escapeHtml(record.title || "registro")}"><i data-lucide="trash-2"></i></button></div>`
+      : `<button class="icon-button compact" data-select-unit="${escapeHtml(record.unitId || "")}" type="button" title="Abrir unidade" aria-label="Abrir unidade"><i data-lucide="arrow-up-right"></i></button>`;
+    return `<tr><td><strong>${escapeHtml(record.title || record.name || "Registro operacional")}</strong></td><td>${escapeHtml(record.owner || unitForId(record.unitId)?.city || "Rede 33Doctor")}</td><td>${formatDate(record.deadline || record.dueDate)}</td><td>${statusBadge(record.status || "Pendente")}</td><td>${escapeHtml(record.notes || "Sem observações")}</td><td>${actions}</td></tr>`;
+  }).join("")}</tbody></table></div>`;
+}
+
+function renderApprovedModuleScreen(moduleCode) {
+  if (moduleCode === "implantation") return renderImplantationDashboard();
+  const blueprint = approvedModuleBlueprints[moduleCode];
+  if (!blueprint) return renderDepartmentVisualWorkspace(moduleCode, departmentDefinitions[moduleCode], departmentDefinitions[moduleCode]?.sections?.[0]);
+  const context = approvedContext(moduleCode);
+  const active = approvedActiveTab(moduleCode, blueprint);
+  const filters = state.approvedFiltersVisible[moduleCode] ? renderApprovedFilters(moduleCode, blueprint, context) : "";
+  if (moduleCode === "settings" && active === "Usuários") return `<div class="approved-module-wrap">${approvedPageHeader(moduleCode, blueprint)}${filters}${renderApprovedTabs(moduleCode, blueprint)}${renderAdminCenter()}</div>`;
+  if (moduleCode === "documentation" && active === "Biblioteca") return `<div class="approved-module-wrap">${approvedPageHeader(moduleCode, blueprint)}${filters}${renderApprovedMetrics(moduleCode, blueprint, context)}${renderApprovedTabs(moduleCode, blueprint)}${renderApprovedDocumentLibrary(context)}</div>`;
+  const units = approvedFilteredUnits(moduleCode, context);
+  return `<div class="approved-module-wrap">
+    ${approvedPageHeader(moduleCode, blueprint)}
+    ${filters}
+    ${renderApprovedMetrics(moduleCode, blueprint, context)}
+    ${renderApprovedTabs(moduleCode, blueprint)}
+    ${renderApprovedModuleDashboard(moduleCode, blueprint, context, units, active)}
+  </div>`;
+}
+
+const approvedDetailNames = {
+  credentialing: ["Pipeline de credenciamento", "Cobertura prioritária", "Requer atenção"],
+  operation: ["Saúde operacional das unidades", "Pendências operacionais", "Rotinas e ocorrências", "Desempenho semanal"],
+  finance: ["Fluxo de caixa", "Receitas por categoria", "Próximos vencimentos", "Movimentações financeiras", "Aguardando aprovação", "Atenção financeira", "Posição das unidades"],
+  dp: ["Situação dos colaboradores", "Movimentação de pessoal", "Prazos e obrigações", "Colaboradores e eventos", "Indicadores trabalhistas"],
+  hr: ["Pipeline de recrutamento", "Turnover e admissões", "Agenda de RH", "Vagas e ciclos", "Desempenho e clima"],
+  projects: ["Portfólio de projetos", "Prioridades do portfólio", "Próximos marcos", "Saúde do portfólio", "Orçamento do portfólio"],
+  quality: ["Arquitetura de processos", "Conformidade por tema", "Agenda de auditoria", "Não conformidades e planos", "Mapa de eficácia"],
+  documentation: ["Bibliotecas", "Ações rápidas", "Requer atenção", "Documentos recentes", "Validades"],
+  contracts: ["Ciclo contratual", "Vencimentos e renovações", "Aprovações", "Gestão de obrigações", "Agenda contratual"],
+  compliance: ["Conformidade por dimensão", "Situação das unidades", "Requer atenção", "Obrigações e controles", "Risco e controle"],
+  communication: ["Desempenho da comunicação", "Agenda de publicação", "Comunicados recentes", "Alcance por canal", "Falhas de entrega", "Público e ciência"],
+  training: ["Progresso das trilhas prioritárias", "Agenda de treinamentos", "Treinamentos em acompanhamento", "Situação das equipes", "Capacitação por unidade", "Prontidão da implantação"],
+  support: ["Fluxo de chamados", "Chamados em acompanhamento", "Desempenho de SLA", "Prioridades", "Chamados por categoria", "Qualidade do atendimento", "Base de conhecimento"],
+  settings: ["Central de configuração", "Saúde do sistema", "Usuários e escopos", "Requer ação", "Eventos de auditoria"],
+};
+
+function renderApprovedModuleDashboard(moduleCode, blueprint, context, units, active) {
+  if (moduleCode === "credentialing" && active === blueprint.tabs[0]) return renderApprovedCredentialingPipeline(blueprint, context, units);
+  if (moduleCode === "operation" && active === blueprint.tabs[0]) return renderApprovedOperationOverview(blueprint, context, units);
+  if (moduleCode === "projects" && active === blueprint.tabs[0]) return renderApprovedProjectPortfolio(blueprint, context, units);
+  if (active !== blueprint.tabs[0]) return renderApprovedOperationalWorkspace(moduleCode, blueprint, context, units, active);
+  const names = approvedDetailNames[moduleCode] || [blueprint.primary, blueprint.secondary, ...(blueprint.lower || [])];
+  return `<div class="approved-detail-grid approved-reference-grid approved-reference-${escapeHtml(moduleCode)}">${names.map((name, index) => renderApprovedDetailPanel(moduleCode, blueprint, context, units, active, name, index, `approved-reference-slot approved-reference-slot-${index + 1}`)).join("")}</div>`;
+}
+
+const approvedTabGuidance = {
+  credentialing: {
+    Prestadores: "Cadastre prestadores, acompanhe documentos, responsáveis, prazos e situação contratual.",
+    "Cobertura da rede": "Compare especialidades e disponibilidade por unidade para localizar lacunas assistenciais.",
+    Mapa: "Visualize a distribuição territorial e abra a unidade responsável por cada cobertura.",
+  },
+  operation: {
+    Rotinas: "Organize as rotinas recorrentes por unidade, responsável e data de execução.",
+    Checklists: "Registre evidências e acompanhe a conclusão dos controles operacionais.",
+    Ocorrências: "Documente desvios, impactos, responsáveis e providências adotadas.",
+    "Planos de ação": "Transforme ocorrências em ações com prazo, prioridade e evidência de conclusão.",
+  },
+  finance: {
+    "Contas a receber": "Controle valores previstos, recebidos e vencidos por unidade.",
+    "Contas a pagar": "Acompanhe fornecedores, vencimentos, aprovações e comprovantes.",
+    "Royalties e taxas": "Consolide competências, bases de cálculo, cobranças e baixas.",
+    Repasses: "Registre valores, competências e comprovantes devolvidos às unidades.",
+    Inadimplência: "Priorize títulos vencidos e registre negociações e acordos.",
+    "Fluxo de caixa": "Projete entradas e saídas e acompanhe o saldo operacional.",
+    Conciliação: "Compare movimentos bancários e registros internos com rastreabilidade.",
+  },
+  dp: {
+    Colaboradores: "Mantenha o cadastro funcional e a documentação de cada colaborador.",
+    Admissões: "Acompanhe documentos, exames, contratos e data de início.",
+    Folha: "Organize competências, eventos, conferências e comprovantes.",
+    Férias: "Planeje períodos, aprovações e pagamentos de férias.",
+    Afastamentos: "Registre motivos, documentos e previsões de retorno.",
+    Obrigações: "Controle entregas trabalhistas e respectivos comprovantes.",
+  },
+  hr: {
+    Vagas: "Abra vagas, defina o perfil e acompanhe o funil de candidatos.",
+    Onboarding: "Organize documentos, integrações e marcos do novo colaborador.",
+    Desempenho: "Registre ciclos, metas, avaliações e planos de desenvolvimento.",
+    Clima: "Acompanhe pesquisas, temas críticos e planos de ação.",
+    Desenvolvimento: "Planeje capacitações e evolução por competência.",
+    Sucessão: "Mapeie posições críticas, potenciais sucessores e prontidão.",
+  },
+  projects: {
+    "Em execução": "Acompanhe cronograma, orçamento, marcos, riscos e responsáveis.",
+    Aprovações: "Centralize entregas que aguardam validação da franqueadora.",
+    Riscos: "Registre probabilidade, impacto, resposta e responsável.",
+    Marcos: "Controle as entregas decisivas e suas evidências.",
+    Concluídos: "Consulte projetos encerrados e o histórico de aceite.",
+  },
+  quality: {
+    "Arquitetura de processos": "Mapeie processos, responsáveis, entradas, saídas e documentos vinculados.",
+    Auditorias: "Planeje auditorias e registre achados e evidências.",
+    "Não conformidades": "Classifique desvios e acompanhe tratamento e reincidência.",
+    "Planos de ação": "Defina responsáveis, prazos e critérios de eficácia.",
+    POPs: "Organize procedimentos, versões, aprovações e ciência.",
+  },
+  documentation: {
+    "Em revisão": "Acompanhe documentos em elaboração ou revisão de versão.",
+    Aprovações: "Valide conteúdos antes da publicação para a rede.",
+    Vencimentos: "Renove documentos antes do prazo e mantenha evidências válidas.",
+    Modelos: "Disponibilize modelos oficiais para uso padronizado das unidades.",
+  },
+  contracts: {
+    Solicitações: "Receba demandas contratuais com contexto e documentos de suporte.",
+    "Em elaboração": "Acompanhe minutas, responsáveis e versões em construção.",
+    Aprovações: "Centralize pareceres e aprovações internas.",
+    Assinaturas: "Controle signatários, envios e conclusão das assinaturas.",
+    Vigentes: "Monitore contratos ativos e suas obrigações.",
+    Renovações: "Antecipe reajustes, renovações e renegociações.",
+    Encerrados: "Consulte encerramentos, distratos e histórico documental.",
+  },
+  compliance: {
+    Obrigações: "Controle requisitos legais, responsáveis, prazos e evidências.",
+    Riscos: "Avalie impacto, probabilidade e controles mitigadores.",
+    Controles: "Documente testes, periodicidade e eficácia dos controles.",
+    "Due diligence": "Organize verificações e pareceres de terceiros.",
+    Políticas: "Gerencie versões, aprovações e ciência das políticas.",
+    Incidentes: "Registre incidentes, resposta e ações preventivas.",
+    Privacidade: "Acompanhe LGPD, bases legais, titulares e solicitações.",
+  },
+  communication: {
+    Comunicados: "Crie comunicados e acompanhe entrega, leitura e ciência.",
+    Rascunhos: "Continue conteúdos ainda não publicados.",
+    Programados: "Revise publicações agendadas e seus públicos.",
+    Enviados: "Consulte o histórico e o alcance das comunicações.",
+    Ciências: "Acompanhe confirmações de leitura obrigatória.",
+    Modelos: "Mantenha textos e formatos padronizados.",
+  },
+  training: {
+    Catálogo: "Organize cursos, conteúdos, carga horária e pré-requisitos.",
+    Trilhas: "Agrupe capacitações obrigatórias por público e função.",
+    Turmas: "Controle agenda, instrutores, vagas e presença.",
+    Participantes: "Acompanhe matrícula, progresso e pendências.",
+    Avaliações: "Registre resultados e critérios de aprovação.",
+    Certificados: "Emita e consulte evidências de conclusão.",
+  },
+  support: {
+    "Minha fila": "Priorize os chamados atribuídos ao usuário atual.",
+    "Todos os chamados": "Consulte solicitações de toda a rede conforme permissão.",
+    Incidentes: "Trate interrupções críticas e registre causa e solução.",
+    SLAs: "Acompanhe prazos de resposta e resolução.",
+    "Base de conhecimento": "Organize orientações e soluções recorrentes.",
+  },
+  settings: {
+    Organização: "Atualize dados institucionais e parâmetros da rede.",
+    "Perfis e permissões": "Defina o que cada cargo pode consultar e alterar.",
+    Workflows: "Configure etapas, responsáveis e aprovações automáticas.",
+    Notificações: "Escolha gatilhos, canais e públicos das notificações.",
+    Integrações: "Gerencie conexões e situação dos serviços integrados.",
+    Segurança: "Revise sessões, políticas de acesso e eventos de segurança.",
+    Logs: "Consulte o histórico auditável de ações da plataforma.",
+  },
+};
+
+function renderApprovedOperationalWorkspace(moduleCode, blueprint, context, units, active) {
+  if (moduleCode === "credentialing" && active === "Mapa") {
+    return `<div class="approved-detail-grid"><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h2>Mapa de cobertura</h2><p>${escapeHtml(approvedTabGuidance.credentialing.Mapa)}</p></div><button class="approved-primary compact" data-approved-create="credentialing" type="button"><i data-lucide="plus"></i>Novo credenciamento</button></div>${approvedBrazilMap(units)}</section><aside class="approved-panel"><div class="approved-panel-head"><div><h2>Lacunas prioritárias</h2><p>Unidades que exigem ampliação da rede.</p></div></div>${approvedAttention(context, 7)}</aside></div>`;
+  }
+  const normalized = slug(active);
+  const exactRecords = context.records.filter((record) => {
+    const haystack = `${record.recordType || ""} ${record.category || ""} ${record.status || ""}`.toLowerCase();
+    return haystack.includes(normalized) || haystack.includes(active.toLowerCase());
+  });
+  const records = exactRecords.length ? exactRecords : context.records;
+  const description = approvedTabGuidance[moduleCode]?.[active] || `Cadastre, acompanhe e atualize os registros de ${active.toLowerCase()} com histórico e evidências.`;
+  const fallback = units.slice(0, 6).map((unit) => ({
+    title: `${active} · ${unit.city}`,
+    owner: unit.owner || "Equipe responsável",
+    deadline: unit.openingDate,
+    status: unitStatus(unit).label,
+    notes: `Implantação em ${unitProgress(unit).percent}%`,
+    unitId: unit.id,
+  }));
+  const rows = records.length ? records : fallback;
+  return `<div class="approved-operational-workspace">
+    <section class="approved-panel approved-workspace-main">
+      <div class="approved-panel-head"><div><h2>${escapeHtml(active)}</h2><p>${escapeHtml(description)}</p></div><button class="approved-primary compact" data-approved-create="${escapeHtml(moduleCode)}" type="button"><i data-lucide="plus"></i>${escapeHtml(blueprint.action)}</button></div>
+      <div class="approved-workspace-toolbar"><label><i data-lucide="search"></i><input type="search" placeholder="Buscar em ${escapeHtml(active.toLowerCase())}" /></label><span>${rows.length} registro(s)</span><button class="approved-secondary compact" data-toggle-filters="${escapeHtml(moduleCode)}" type="button"><i data-lucide="sliders-horizontal"></i>Filtrar</button></div>
+      <div class="approved-table-wrap"><table class="approved-table"><thead><tr><th>Registro</th><th>Unidade / responsável</th><th>Prazo</th><th>Status</th><th>Observações</th><th>Ações</th></tr></thead><tbody>${rows.map((record) => {
+        const persisted = Boolean(record.recordId && record.recordType && record.unitId);
+        const action = persisted
+          ? `<div class="approved-row-actions"><button class="icon-button compact" data-approved-edit="${escapeHtml(moduleCode)}" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button" title="Editar"><i data-lucide="pencil"></i></button><button class="icon-button compact danger" data-approved-delete data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button" title="Excluir"><i data-lucide="trash-2"></i></button></div>`
+          : `<button class="icon-button compact" data-approved-preview="${escapeHtml(moduleCode)}" data-unit-id="${escapeHtml(record.unitId || "")}" data-title="${escapeHtml(record.title || active)}" data-status="${escapeHtml(record.status || "Pendente")}" data-owner="${escapeHtml(record.owner || "Equipe responsável")}" data-category="${escapeHtml(active)}" data-deadline="${escapeHtml(record.deadline || "")}" data-notes="${escapeHtml(record.notes || "")}" type="button" title="Abrir"><i data-lucide="arrow-up-right"></i></button>`;
+        return `<tr><td><strong>${escapeHtml(record.title || record.name || active)}</strong><small>${escapeHtml(record.category || active)}</small></td><td>${escapeHtml(record.owner || unitForId(record.unitId)?.city || "Rede 33Doctor")}</td><td>${formatDate(record.deadline || record.dueDate)}</td><td>${statusBadge(record.status || "Pendente")}</td><td>${escapeHtml(record.notes || "Sem observações")}</td><td>${action}</td></tr>`;
+      }).join("")}</tbody></table></div>
+    </section>
+    <aside class="approved-panel approved-workspace-side"><div class="approved-panel-head"><div><h2>Fluxo desta área</h2><p>O que acontece com cada registro.</p></div></div><ol class="approved-workflow-steps"><li><span>1</span><div><strong>Cadastrar</strong><small>Dados, unidade e contexto</small></div></li><li><span>2</span><div><strong>Atribuir</strong><small>Responsável, prazo e prioridade</small></div></li><li><span>3</span><div><strong>Acompanhar</strong><small>Status, observações e evidências</small></div></li><li><span>4</span><div><strong>Concluir</strong><small>Histórico e rastreabilidade</small></div></li></ol>${renderApprovedQuickPanel(moduleCode, blueprint)}</aside>
+  </div>`;
+}
+
+function renderApprovedCredentialingPipeline(blueprint, context, units) {
+  const stages = credentialPipelineStages();
+  const records = units.flatMap((unit) => accreditationForUnit(unit).map((item) => ({ ...item, unit }))).slice(0, 30);
+  return `<div class="approved-credentialing-layout"><section class="approved-panel approved-span-3"><div class="approved-panel-head"><div><h2>Pipeline de credenciamento</h2><p>Prestadores organizados por etapa do processo.</p></div><span class="approved-drag-hint"><i data-lucide="move"></i>Arraste os cards entre etapas</span></div><div class="approved-pipeline">${stages.map((stage) => {
+    const cards = records.filter((item) => credentialPipelineStage(item) === stage);
+    return `<section data-credential-stage="${escapeHtml(stage)}"><header><span>${escapeHtml(stage)}</span><b>${cards.length}</b></header><div>${cards.map((item) => {
+      const unit = item.unit;
+      const options = stages.map((option) => `<option value="${escapeHtml(option)}"${option === stage ? " selected" : ""}>${escapeHtml(option)}</option>`).join("");
+      return `<article draggable="true" aria-grabbed="false" data-credential-card data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}"><div class="approved-card-drag"><i data-lucide="grip-vertical"></i><span>Arrastar</span></div><strong>${escapeHtml(item.name || "Prestador credenciado")}</strong><small>${escapeHtml(unit.city || "Rede 33Doctor")} · ${escapeHtml(item.group || "Rede assistencial")}</small><dl><div><dt>Status</dt><dd>${statusBadge(item.status || credentialPipelineStatus(stage))}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(item.owner || "Credenciamento")}</dd></div><div><dt>Solicitação</dt><dd>${formatDate(item.requestDate)}</dd></div><div><dt>Aprovação</dt><dd>${formatDate(item.approvalDate)}</dd></div></dl><label class="credential-stage-control"><span>Mover para</span><select data-credential-stage-select data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}">${options}</select></label><button data-approved-preview="credentialing" data-unit-id="${escapeHtml(unit.id)}" data-title="${escapeHtml(item.name || "Prestador credenciado")}" data-status="${escapeHtml(item.status || credentialPipelineStatus(stage))}" data-owner="${escapeHtml(item.owner || "Credenciamento")}" data-category="${escapeHtml(stage)}" data-deadline="${escapeHtml(item.approvalDate || unit.openingDate || "")}" data-notes="${escapeHtml(item.notes || "")}" type="button">Abrir prontuário<i data-lucide="arrow-right"></i></button></article>`;
+    }).join("") || `<div class="approved-column-empty">Solte um processo nesta etapa</div>`}</div></section>`;
+  }).join("")}</div></section><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h2>Cobertura prioritária</h2><p>Procedimentos por unidade e avanço de cobertura.</p></div></div>${approvedBars(units)}</section><aside class="approved-panel"><div class="approved-panel-head"><div><h2>Requer atenção</h2><p>Prazos e documentos pendentes.</p></div></div>${approvedAttention(context, 5)}</aside></div>`;
+}
+
+function credentialPipelineStages() {
+  return ["Prospecção", "Documentação", "Análise", "Negociação", "Contratação"];
+}
+
+function credentialPipelineStage(item) {
+  if (credentialPipelineStages().includes(item.pipelineStage)) return item.pipelineStage;
+  const status = normalizeText(item.status);
+  if (status.includes("fechado") || status.includes("conclu") || status.includes("aprov") || status.includes("contrato") || status.includes("assinatura")) return "Contratação";
+  if (status.includes("negocia")) return "Negociação";
+  if (status.includes("analise") || status.includes("misto")) return "Análise";
+  if (status.includes("document")) return "Documentação";
+  return "Prospecção";
+}
+
+function credentialPipelineStatus(stage) {
+  return {
+    "Prospecção": "Pendente",
+    "Documentação": "Aguardando documentos",
+    "Análise": "Em análise",
+    "Negociação": "Em negociação",
+    "Contratação": "Fechado",
+  }[stage] || "Pendente";
+}
+
+async function moveCredentialPipelineCard(payload, nextStage) {
+  if (!credentialPipelineStages().includes(nextStage)) return;
+  const unit = unitForId(payload.unitId);
+  const item = unit ? accreditationForUnit(unit).find((record) => record.procedureId === payload.procedureId) : null;
+  if (!unit || !item) return;
+  if (!canEditTenant(unit.tenantId || unit.id, "business")) {
+    alert("Seu perfil não tem permissão para alterar este credenciamento.");
+    return;
+  }
+  if (credentialPipelineStage(item) === nextStage) return;
+
+  const previous = { ...item };
+  const updated = { ...item, status: credentialPipelineStatus(nextStage), pipelineStage: nextStage, hidden: false };
+  state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...updated };
+  setLocalAccreditationRecord(updated);
+  writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
+  render();
+
+  try {
+    if (supabaseEnabled && state.auth?.token) {
+      await supabaseRpc("update_accreditation_record", {
+        p_token: state.auth.token,
+        p_unit_id: updated.unitId,
+        p_procedure_id: updated.procedureId,
+        p_status: updated.status,
+        p_request_date: updated.requestDate || null,
+        p_approval_date: updated.approvalDate || null,
+        p_owner_name: updated.owner || "Credenciamento",
+        p_attachments: updated.attachments || "Sem anexo",
+        p_notes: updated.notes || "",
+      });
+    }
+    showOperationToast(`Credenciamento movido para ${nextStage}.`);
+  } catch (error) {
+    state.accreditationOverrides[item.id] = { ...state.accreditationOverrides[item.id], ...previous };
+    setLocalAccreditationRecord(previous);
+    writeStorage("franchiseAccreditationOverrides", state.accreditationOverrides);
+    render();
+    alert(error.message || "Não foi possível mover o credenciamento.");
+  }
+}
+
+function renderApprovedOperationOverviewLegacy(blueprint, context, units) {
+  return `<div class="approved-detail-grid"><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h3>Saúde operacional das unidades</h3><p>Indicadores de rotina, conformidade e ocorrências.</p></div><div class="approved-view-switch"><button class="active" type="button" aria-pressed="true"><i data-lucide="layout-grid"></i>Cartões</button><button type="button" aria-pressed="false"><i data-lucide="list"></i>Lista</button></div></div><div class="approved-health-cards">${units.slice(0, 4).map((unit) => { const score = Math.max(45, Math.min(98, unitProgress(unit).percent + 34)); return `<article><header><span class="approved-health-ring" style="--health:${score}%"><b>${score}%</b></span><div><strong>${escapeHtml(unit.city)}/${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></div></header><dl><div><dt>Rotinas</dt><dd>${Math.max(4, Math.round(score / 10))}/10</dd></div><div><dt>Conformidade</dt><dd>${Math.max(50, score - 4)}%</dd></div><div><dt>Ocorrências</dt><dd>${unitStats(unit).openPending}</dd></div></dl><button data-select-unit="${escapeHtml(unit.id)}" type="button">Abrir unidade<i data-lucide="arrow-right"></i></button></article>`; }).join("")}</div></section><aside class="approved-panel"><div class="approved-panel-head"><div><h3>Prioridades operacionais</h3><p>Ocorrências que pedem decisão.</p></div></div>${approvedAttention(context, 5)}</aside>${renderApprovedDetailPanel("operation", blueprint, context, units, "Visão geral", "Rotinas de hoje", 1)}${renderApprovedDetailPanel("operation", blueprint, context, units, "Visão geral", "Evolução da saúde da rede", 2)}${renderApprovedDetailPanel("operation", blueprint, context, units, "Visão geral", "Não conformidades", 3)}${renderApprovedQuickPanel("operation", blueprint)}</div>`;
+}
+
+function renderApprovedProjectPortfolioLegacy(blueprint, context, units) {
+  return `<div class="approved-detail-grid"><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h3>Portfólio de projetos</h3><p>Projetos por unidade, saúde, orçamento e próximos marcos.</p></div><div class="approved-view-switch"><button class="active" type="button" aria-pressed="true"><i data-lucide="layout-grid"></i>Cartões</button><button type="button" aria-pressed="false"><i data-lucide="list"></i>Lista</button></div></div><div class="approved-project-cards">${units.slice(0, 6).map((unit, index) => { const progress = unitProgress(unit).percent; const risk = riskLevel(unit); const next = (unit.tasks || []).find((task) => getStatus(task) !== "Concluído"); return `<article><header><span><i data-lucide="folder-kanban"></i></span><div><strong>${escapeHtml(index % 2 ? "Implantação da unidade" : "Estrutura e abertura")}</strong><small>${escapeHtml(unit.city)}/${escapeHtml(unit.state || "")}</small></div>${statusBadge(risk.label === "Alto" ? "Em risco" : "Em Andamento")}</header><div class="approved-progress-row"><span>Progresso</span><i><b style="width:${progress}%"></b></i><strong>${progress}%</strong></div><dl><div><dt>Prazo</dt><dd>${formatDate(unit.openingDate)}</dd></div><div><dt>Orçamento</dt><dd>${approvedMoney((index + 1) * 35000)}</dd></div><div><dt>Próximo marco</dt><dd>${escapeHtml(next?.process || "Operação assistida")}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(unit.owner || "Projetos")}</dd></div><div><dt>Vencidas</dt><dd>${unitStats(unit).openPending}</dd></div></dl><button data-approved-create="projects" type="button">Abrir projeto<i data-lucide="arrow-right"></i></button></article>`; }).join("")}</div></section><aside class="approved-panel"><div class="approved-panel-head"><div><h3>Prioridades do portfólio</h3><p>Riscos e tarefas vencidas.</p></div></div>${approvedAttention(context, 5)}</aside>${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Próximos marcos", 1)}${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Saúde do portfólio", 2)}${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Orçamento do portfólio", 3)}${renderApprovedQuickPanel("projects", blueprint)}</div>`;
+}
+
+function renderApprovedOperationOverview(blueprint, context, units) {
+  const cards = `<div class="approved-health-cards">${units.slice(0, 4).map((unit) => {
+    const score = Math.max(45, Math.min(98, unitProgress(unit).percent + 34));
+    return `<article><header><span class="approved-health-ring" style="--health:${score}%"><b>${score}%</b></span><div><strong>${escapeHtml(unit.city)}/${escapeHtml(unit.state || "")}</strong><small>${escapeHtml(unitStatus(unit).label)}</small></div></header><dl><div><dt>Rotinas</dt><dd>${Math.max(4, Math.round(score / 10))}/10</dd></div><div><dt>Conformidade</dt><dd>${Math.max(50, score - 4)}%</dd></div><div><dt>Ocorrências</dt><dd>${unitStats(unit).openPending}</dd></div></dl><button data-select-unit="${escapeHtml(unit.id)}" type="button">Abrir unidade<i data-lucide="arrow-right"></i></button></article>`;
+  }).join("")}</div>`;
+  return `<div class="approved-detail-grid"><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h2>Saúde operacional das unidades</h2><p>Indicadores de rotina, conformidade e ocorrências.</p></div></div>${cards}</section><aside class="approved-panel"><div class="approved-panel-head"><div><h2>Pendências operacionais</h2><p>Ocorrências que pedem decisão.</p></div></div>${approvedAttention(context, 5)}</aside>${renderApprovedDetailPanel("operation", blueprint, context, units, "Visão geral", "Rotinas e ocorrências", 2)}${renderApprovedDetailPanel("operation", blueprint, context, units, "Visão geral", "Desempenho semanal", 3)}</div>`;
+}
+
+function renderApprovedProjectPortfolio(blueprint, context, units) {
+  const cards = `<div class="approved-project-cards">${units.slice(0, 4).map((unit, index) => {
+    const progress = unitProgress(unit).percent;
+    const risk = riskLevel(unit);
+    const next = (unit.tasks || []).find((task) => getStatus(task) !== "Concluído");
+    return `<article><header><span><i data-lucide="folder-kanban"></i></span><div><strong>${escapeHtml(index % 2 ? "Implantação da unidade" : "Estrutura e abertura")}</strong><small>${escapeHtml(unit.city)}/${escapeHtml(unit.state || "")}</small></div>${statusBadge(risk.label === "Alto" ? "Em risco" : "Em Andamento")}</header><div class="approved-progress-row"><span>Progresso</span><i><b style="width:${progress}%"></b></i><strong>${progress}%</strong></div><dl><div><dt>Prazo</dt><dd>${formatDate(unit.openingDate)}</dd></div><div><dt>Orçamento</dt><dd>${approvedMoney((index + 1) * 35000)}</dd></div><div><dt>Próximo marco</dt><dd>${escapeHtml(next?.process || "Operação assistida")}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(unit.owner || "Projetos")}</dd></div><div><dt>Vencidas</dt><dd>${unitStats(unit).openPending}</dd></div></dl><button data-approved-preview="projects" data-unit-id="${escapeHtml(unit.id)}" data-title="${escapeHtml(index % 2 ? "Implantação da unidade" : "Estrutura e abertura")}" data-status="${escapeHtml(risk.label === "Alto" ? "Em risco" : "Em Andamento")}" data-owner="${escapeHtml(unit.owner || "Projetos")}" data-category="Projeto" data-deadline="${escapeHtml(unit.openingDate || "")}" data-notes="${escapeHtml(next?.process || "Operação assistida")}" type="button">Abrir projeto<i data-lucide="arrow-right"></i></button></article>`;
+  }).join("")}</div>`;
+  return `<div class="approved-detail-grid"><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h2>Portfólio de projetos</h2><p>Projetos por unidade, saúde, orçamento e próximos marcos.</p></div></div>${cards}</section><aside class="approved-panel"><div class="approved-panel-head"><div><h2>Prioridades do portfólio</h2><p>Riscos e tarefas vencidas.</p></div></div>${approvedAttention(context, 3)}</aside>${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Próximos marcos", 1)}${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Saúde do portfólio", 2)}${renderApprovedDetailPanel("projects", blueprint, context, units, "Portfólio", "Entregas e benefícios", 3)}</div>`;
+}
+
+function approvedMoney(value) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(Number(value) || 0);
+}
+
+function renderApprovedDetailPanel(moduleCode, blueprint, context, units, active, name, index, layoutClass = "") {
+  const span = index === 0 || /movimenta|processos|recent|acompanhamento|ranking|situação das unidades/i.test(name) ? "approved-span-2" : "";
+  let body;
+  if (/central de configuraç/i.test(name)) body = approvedConfigurationTiles(moduleCode, blueprint);
+  else if (/saúde do sistema/i.test(name)) body = approvedSystemHealth(context);
+  else if (/ações rápidas/i.test(name)) body = approvedQuickActionsBody(moduleCode, blueprint);
+  else if (/bibliotecas/i.test(name)) body = approvedLibraryOverview();
+  else if (/arquitetura de processos/i.test(name)) body = approvedProcessArchitecture();
+  else if (/situação dos colaboradores|planejamento do quadro/i.test(name)) body = approvedWorkforceBars(units);
+  else if (/atenção|priorit|aprovações$|falhas de entrega|prontidão da implantação/i.test(name)) body = approvedAttention(context, 5);
+  else if (/agenda|vencimentos|marcos|prazos e obrigações/i.test(name)) body = approvedTimelineSummary(units, name);
+  else if (/pipeline|funil|ciclo contratual|fluxo de chamados|fluxo de atendimento/i.test(name)) body = approvedMiniFunnel(context, name);
+  else if (/recent|rotinas e ocorrências|movimentações financeiras|colaboradores e eventos|vagas e ciclos|não conformidades e planos|obrigações e controles|treinamentos em acompanhamento|comunicados|solicitações|planos de ação|contratos prioritários|chamados em acompanhamento|usuários e escopos|eventos de auditoria/i.test(name)) body = approvedRecentTable(moduleCode, blueprint, context);
+  else if (/desempenho|movimentação|turnover|evolução|fluxo de caixa|atividade|indicadores trabalhistas|mapa de eficácia|risco e controle/i.test(name)) body = approvedLineChart([42, 48, 55, 51, 64, Math.max(68, context.average)]);
+  else if (/carteira|receitas|alcance|situação documental|situação das equipes|situação das unidades|conformidade|capacitação|público e ciência|validades|saúde do portfólio|entregas e benefícios/i.test(name)) body = approvedDistribution(context, name);
+  else if (/base de conhecimento/i.test(name)) body = approvedKnowledgeList();
+  else body = approvedBars(units);
+  return `<section class="approved-panel ${span} ${layoutClass}"><div class="approved-panel-head"><div><h2>${escapeHtml(name)}</h2><p>${escapeHtml(active === blueprint.tabs[0] ? "Visão consolidada com dados da rede." : `Visão de ${active.toLowerCase()} conforme filtros aplicados.`)}</p></div>${index === 0 ? '<span class="approved-live"><i data-lucide="refresh-cw"></i>Atualizado agora</span>' : ""}</div>${body}</section>`;
+}
+
+function approvedQuickActionsBody(moduleCode, blueprint) {
+  return `<div class="approved-quick-list">${blueprint.quick.map((label, index) => `<button data-approved-quick="${escapeHtml(moduleCode)}" data-approved-quick-index="${index}" type="button"><i data-lucide="${["plus-circle", "clipboard-check", "send"][index] || "arrow-up-right"}"></i><span>${escapeHtml(label)}</span><i data-lucide="chevron-right"></i></button>`).join("")}</div>`;
+}
+
+function approvedLibraryOverview() {
+  return `<div class="approved-config-tiles approved-library-overview">${[["Corporativa", "428 documentos"], ["Unidades", "516 documentos"], ["Pessoas", "180 documentos"], ["Projetos", "124 documentos"]].map(([label, value]) => `<button data-approved-tab="documentation" data-approved-tab-value="Biblioteca" type="button"><span><i data-lucide="folder"></i></span><div><strong>${label}</strong><small>${value}</small></div><i data-lucide="chevron-right"></i></button>`).join("")}</div>`;
+}
+
+function approvedKnowledgeList() {
+  return `<div class="approved-quick-list"><button data-approved-tab="support" data-approved-tab-value="Base de conhecimento" type="button"><i data-lucide="book-open-check"></i><span>Acesso ao sistema <small>42 visualizações</small></span><i data-lucide="chevron-right"></i></button><button data-approved-tab="support" data-approved-tab-value="Base de conhecimento" type="button"><i data-lucide="paperclip"></i><span>Como anexar evidência <small>31 visualizações</small></span><i data-lucide="chevron-right"></i></button></div>`;
+}
+
+function approvedConfigurationTiles(moduleCode, blueprint) {
+  const labels = blueprint.tabs.slice(1, 7);
+  return `<div class="approved-config-tiles">${labels.map((label, index) => `<button data-approved-tab="${escapeHtml(moduleCode)}" data-approved-tab-value="${escapeHtml(label)}" type="button"><span><i data-lucide="${["building-2", "users", "shield-check", "workflow", "bell-ring", "plug"][index] || "settings"}"></i></span><div><strong>${escapeHtml(label)}</strong><small>Gerenciar configurações</small></div><i data-lucide="chevron-right"></i></button>`).join("")}</div>`;
+}
+
+function approvedSystemHealth(context) {
+  const health = Math.max(72, Math.min(99, context.average + 22));
+  return `<div class="approved-system-health"><div class="approved-donut" style="--donut:${health}%"><span><strong>${health}%</strong><small>operacional</small></span></div><ul><li><span>Banco de dados</span><b>Operacional</b></li><li><span>Autenticação</span><b>Operacional</b></li><li><span>Armazenamento</span><b>Operacional</b></li><li><span>Integrações</span><b>Monitoradas</b></li></ul></div>`;
+}
+
+function approvedProcessArchitecture() {
+  return `<div class="approved-process-map">${["Gestão", "Implantação", "Operação", "Pessoas", "Financeiro", "Relacionamento", "Governança", "Suporte"].map((label, index) => `<button data-approved-create="quality" type="button"><span>${String(index + 1).padStart(2, "0")}</span><strong>${label}</strong><small>${index % 3 + 2} processo(s)</small></button>`).join("")}</div>`;
+}
+
+function approvedWorkforceBars(units) {
+  const labels = ["Operação", "Atendimento", "Administrativo", "Comercial", "Gestão"];
+  return `<div class="approved-workforce-bars">${labels.map((label, index) => { const value = Math.max(18, Math.min(96, (units.length * 11) + 22 - index * 8)); return `<div><span>${label}</span><i><b style="width:${value}%"></b></i><strong>${Math.max(1, Math.round(value / 12))}</strong></div>`; }).join("")}</div>`;
+}
+
+function approvedTimelineSummary(units, title) {
+  return `<div class="approved-timeline-summary">${units.slice(0, 5).map((unit, index) => `<button data-select-unit="${escapeHtml(unit.id)}" type="button"><span><b>${String((index + 2) * 3).padStart(2, "0")}</b><small>${new Date().toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></span><div><strong>${escapeHtml(unit.city)} · ${escapeHtml(title)}</strong><small>${escapeHtml((unit.tasks || []).find((task) => getStatus(task) !== "Concluído")?.process || "Atualização operacional")}</small></div><i data-lucide="chevron-right"></i></button>`).join("")}</div>`;
+}
+
+function approvedMiniFunnel(context, label) {
+  const values = [100, 82, 63, 41, Math.max(18, context.average)];
+  return `<div class="approved-mini-funnel">${values.map((value, index) => `<div style="--funnel-width:${value}%"><span>${escapeHtml(["Entrada", "Análise", "Validação", "Aprovação", "Concluído"][index])}</span><i></i><b>${Math.max(0, Math.round((context.records.length || context.units.length) * value / 100))}</b></div>`).join("")}</div>`;
+}
+
+function approvedDistribution(context, label) {
+  const values = [38, 27, 21, 14];
+  return `<div class="approved-distribution"><div class="approved-donut" style="--donut:${Math.max(35, context.average)}%"><span><strong>${context.records.length || context.units.length}</strong><small>total</small></span></div><div>${["Concluído", "Em andamento", "Pendente", "Crítico"].map((item, index) => `<span><i class="${["green", "blue", "amber", "red"][index]}"></i>${escapeHtml(item)}<b>${values[index]}%</b></span>`).join("")}</div></div>`;
+}
+
+function renderApprovedQuickPanel(moduleCode, blueprint) {
+  return `<aside class="approved-panel"><div class="approved-panel-head"><div><h3>Ações rápidas</h3><p>Atalhos para a rotina desta área.</p></div></div><div class="approved-quick-list">${blueprint.quick.map((label, index) => `<button data-approved-quick="${escapeHtml(moduleCode)}" data-approved-quick-index="${index}" type="button"><i data-lucide="${index === 0 ? "plus" : index === 1 ? "calendar-plus" : "file-plus-2"}"></i><span>${escapeHtml(label)}</span><i data-lucide="chevron-right"></i></button>`).join("")}</div></aside>`;
+}
+
+function approvedPageHeader(moduleCode, blueprint) {
+  return `<section class="approved-page-head"><div class="approved-title"><div><h1>${escapeHtml(blueprint.title)}</h1><p>${escapeHtml(blueprint.description)}</p></div></div><div class="approved-page-actions"><button class="approved-secondary" data-toggle-filters="${escapeHtml(moduleCode)}" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible[moduleCode])}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="approved-secondary" data-approved-export="${escapeHtml(moduleCode)}" type="button"><i data-lucide="download"></i>${escapeHtml(blueprint.exportLabel)}</button><button class="approved-primary" data-approved-create="${escapeHtml(moduleCode)}" type="button"><i data-lucide="plus"></i>${escapeHtml(blueprint.action)}</button></div></section>`;
+}
+
+function renderDepartmentHub(departmentCode) {
+  return renderApprovedModuleScreen(departmentCode);
+}
+
+function renderExecutivePanel() {
+  const context = approvedContext("executive");
+  const executiveTabs = ["Visão da rede", "Expansão", "Operação", "Financeiro", "Pessoas", "Governança"];
+  const activeExecutiveTab = executiveTabs.includes(state.approvedTabs.executive)
+    ? state.approvedTabs.executive
+    : "Visão da rede";
+  const units = approvedFilteredUnits("executive", context);
+  const ready = units.filter((unit) => unitProgress(unit).percent >= 90).length;
+  const delayed = units.filter((unit) => ["Em atraso", "Implantação crítica"].includes(unitStatus(unit).label)).length;
+  const activeAccreditations = accreditationCountForUnits(units);
+  const funnel = [
+    ["Onboarding", context.tasks.length], ["Planejamento", Math.round(context.tasks.length * .82)],
+    ["Estrutura", Math.round(context.tasks.length * .66)], ["Credenciamento", Math.round(context.tasks.length * .48)],
+    ["Treinamentos", Math.round(context.tasks.length * .31)], ["Inauguração", ready],
+  ];
+  const overview = `<div class="approved-executive-grid">
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Crescimento da rede</h3><p>Unidades contratadas e inauguradas.</p></div><span class="approved-live">Meta anual: ${Math.max(units.length + 2, 8)} unidades</span></div>${approvedLineChart([28,36,43,52,61,Math.max(68, context.average)])}</section>
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Funil de implantação</h3><p>Avanço por etapa da jornada.</p></div></div><div class="approved-funnel">${funnel.map(([label,value],index) => `<div style="--funnel-width:${100-index*11}%"><span>${label}</span><i></i><strong>${value}</strong></div>`).join("")}</div></section>
+      <section class="approved-panel risk-matrix-panel"><div class="approved-panel-head"><div><h3>Mapa de riscos</h3><p>Matriz de probabilidade e impacto das unidades.</p></div></div>${approvedRiskMatrix(units)}</section>
+      <section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h3>Ranking das unidades</h3><p>Implantação, credenciamento, conformidade e desempenho.</p></div></div>${approvedRankingTable(units)}</section>
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Credenciamento da rede</h3><p>Cobertura e situação dos prestadores.</p></div></div>${approvedDonut(activeAccreditations, Math.max(activeAccreditations + context.open.length, 1), "credenciamentos")}</section>
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Riscos prioritários</h3><p>Ações que exigem decisão.</p></div></div>${approvedAttention(context, 4)}</section>
+    </div>`;
+  return `<div class="approved-module-wrap">
+    <section class="approved-page-head"><div class="approved-title"><div><h1>Painel executivo</h1><p>Visão estratégica e desempenho consolidado da rede.</p></div></div><div class="approved-page-actions"><button class="approved-secondary" data-toggle-filters="executive" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible.executive)}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="approved-secondary" data-approved-export="executive" type="button"><i data-lucide="download"></i>Exportar</button><button class="approved-primary" data-approved-quick="executive" type="button"><i data-lucide="plus"></i>Nova ação</button></div></section>
+    ${state.approvedFiltersVisible.executive ? renderApprovedFilters("executive", { title: "Painel executivo", filters: ["Período", "Região", "Unidade"] }, context) : ""}
+    <div class="approved-metric-grid six">
+      ${[["Unidades na rede", units.length, "building-2", "slate"], ["Crescimento da rede", `${units.length ? Math.max(1, Math.round(units.length / 5)) : 0}%`, "trending-up", "green"], ["Implantação média", `${Math.round(units.reduce((s,u)=>s+unitProgress(u).percent,0)/Math.max(units.length,1))}%`, "hard-hat", "blue"], ["Unidades em risco", delayed, "triangle-alert", "red"], ["Credenciamentos ativos", activeAccreditations, "badge-check", "green"], ["Pendências no prazo", `${percentOf(context.open.filter(({unit,task}) => pendingPriority(task,unit) !== "Alta").length, Math.max(context.open.length,1))}%`, "clock-3", "amber"]].map(([label,value,icon,tone]) => `<article class="approved-metric ${tone}"><span><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong><em>vs. período anterior</em></div><div class="approved-mini-trend"><i></i><i></i><i></i><i></i></div></article>`).join("")}
+    </div>
+    <nav class="approved-tabs" role="tablist" aria-label="Áreas do painel executivo">${executiveTabs.map(tab=>`<button class="${activeExecutiveTab===tab?"active":""}" data-approved-tab="executive" data-approved-tab-value="${tab}" type="button" role="tab" aria-selected="${activeExecutiveTab===tab}">${tab}</button>`).join("")}</nav>
+    ${activeExecutiveTab === "Visão da rede" ? overview : renderExecutiveDecisionWorkspace(activeExecutiveTab, context)}
+  </div>`;
+}
+
+const executiveAreaDefinitions = {
+  "Expansão": {
+    action: "Nova decisão de expansão",
+    emptyTitle: "Nenhuma decisão de expansão registrada",
+    emptyText: "Registre aprovações, prioridades e encaminhamentos para o crescimento da rede.",
+    recordLabel: "Decisão de expansão",
+    workflow: [["Registrada", ["Pendente", "Rascunho"]], ["Em execução", ["Em Andamento", "Em análise"]], ["Validada", ["Concluído", "Aprovado"]], ["Encerrada", ["Encerrado", "Cancelado"]]],
+  },
+  "Operação": {
+    action: "Nova diretriz operacional",
+    emptyTitle: "Nenhuma diretriz operacional registrada",
+    emptyText: "Registre decisões sobre padrões, desempenho, ocorrências e planos de ação das unidades.",
+    recordLabel: "Diretriz operacional",
+    workflow: [["Registrada", ["Pendente", "Rascunho"]], ["Em execução", ["Em Andamento"]], ["Em validação", ["Em análise"]], ["Concluída", ["Concluído", "Aprovado"]]],
+  },
+  "Financeiro": {
+    action: "Nova deliberação financeira",
+    emptyTitle: "Nenhuma deliberação financeira registrada",
+    emptyText: "Registre decisões sobre orçamento, repasses, investimentos, royalties e exposição financeira.",
+    recordLabel: "Deliberação financeira",
+    workflow: [["Registrada", ["Pendente", "Rascunho"]], ["Em análise", ["Em análise"]], ["Aprovada", ["Aprovado"]], ["Concluída", ["Concluído"]]],
+  },
+  "Pessoas": {
+    action: "Nova decisão de pessoas",
+    emptyTitle: "Nenhuma decisão de pessoas registrada",
+    emptyText: "Registre decisões sobre estrutura, lideranças, quadro, desenvolvimento e sucessão.",
+    recordLabel: "Decisão de pessoas",
+    workflow: [["Registrada", ["Pendente", "Rascunho"]], ["Em avaliação", ["Em análise"]], ["Em execução", ["Em Andamento"]], ["Concluída", ["Concluído", "Aprovado"]]],
+  },
+  "Governança": {
+    action: "Nova resolução de governança",
+    emptyTitle: "Nenhuma resolução de governança registrada",
+    emptyText: "Registre deliberações, políticas, riscos, controles e responsabilidades da rede.",
+    recordLabel: "Resolução de governança",
+    workflow: [["Proposta", ["Pendente", "Rascunho"]], ["Em validação", ["Em análise"]], ["Aprovada", ["Aprovado"]], ["Publicada", ["Concluído"]]],
+  },
+};
+
+function executiveAreaDefinition(activeTab) {
+  return executiveAreaDefinitions[activeTab] || executiveAreaDefinitions["Expansão"];
+}
+
+function renderExecutiveDecisionWorkspace(activeTab, context) {
+  const definition = executiveAreaDefinition(activeTab);
+  const records = context.records.filter((record) => (record.category || "Expansão") === activeTab);
+  const workflow = definition.workflow.map(([label, statuses]) => [label, records.filter((record) => statuses.includes(record.status)).length]);
+  const activeWorkflowStatus = state.approvedFilters.executive?.workflowStatus || "";
+  const activeWorkflowDefinition = definition.workflow.find(([label]) => label === activeWorkflowStatus);
+  const visibleRecords = activeWorkflowDefinition ? records.filter((record) => activeWorkflowDefinition[1].includes(record.status)) : records;
+  const inProgress = records.filter((record) => ["Em Andamento", "Em análise"].includes(record.status)).length;
+  const completed = records.filter((record) => ["Concluído", "Aprovado"].includes(record.status)).length;
+  const critical = records.filter((record) => ["Alta", "Crítica"].includes(record.priority) && !["Concluído", "Aprovado"].includes(record.status)).length;
+  const recordsMarkup = visibleRecords.length
+    ? `<div class="executive-decision-list">${visibleRecords.map((record) => `<article><div><span>${escapeHtml(record.priority || "Média")}</span><strong>${escapeHtml(record.title || "Decisão executiva")}</strong><small>${escapeHtml(unitForId(record.unitId)?.city || "Toda a rede")} · ${escapeHtml(record.owner || "Responsável não definido")}</small></div>${statusBadge(record.status || "Pendente")}<button class="icon-button compact" data-approved-edit="executive" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button" aria-label="Editar decisão"><i data-lucide="pencil"></i></button></article>`).join("")}</div>`
+    : records.length
+      ? `<div class="executive-decision-empty compact"><i data-lucide="list-filter"></i><strong>Nenhum registro neste status</strong><p>Clique novamente no status selecionado para remover o filtro.</p></div>`
+    : `<div class="executive-decision-empty"><i data-lucide="package-check"></i><strong>${escapeHtml(definition.emptyTitle)}</strong><p>${escapeHtml(definition.emptyText)}</p><button class="approved-primary" data-approved-create="executive" data-executive-category="${escapeHtml(activeTab)}" type="button"><i data-lucide="plus"></i>${escapeHtml(definition.action)}</button></div>`;
+  return `<div class="executive-decision-workspace">
+    <section class="approved-panel executive-decision-main"><div class="approved-panel-head"><div><span>PAINEL EXECUTIVO</span><h3>${escapeHtml(activeTab)}</h3><p>${escapeHtml(definition.emptyText)}</p></div><button class="approved-secondary" data-approved-create="executive" data-executive-category="${escapeHtml(activeTab)}" type="button">${escapeHtml(definition.action)}<i data-lucide="arrow-right"></i></button></div><div class="executive-area-summary"><article><span>Total</span><strong>${records.length}</strong><small>${escapeHtml(definition.recordLabel)}(ões)</small></article><article><span>Em andamento</span><strong>${inProgress}</strong><small>em acompanhamento</small></article><article><span>Concluídas</span><strong>${completed}</strong><small>decisões finalizadas</small></article><article class="critical"><span>Prioridade alta</span><strong>${critical}</strong><small>exigem atenção</small></article></div>${recordsMarkup}</section>
+    <aside class="executive-decision-side">
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Status do workflow</h3><p>${escapeHtml(activeTab)}</p></div></div><div class="executive-workflow-list">${workflow.map(([label,count], index) => `<button class="${activeWorkflowStatus === label ? "active" : ""}" data-executive-workflow-status="${escapeHtml(label)}" type="button" aria-pressed="${activeWorkflowStatus === label}"><span class="${index === workflow.length - 1 ? "done" : ""}"><i data-lucide="${index === workflow.length - 1 ? "check" : "clock-3"}"></i></span><div><strong>${label}</strong><small>${count} registro(s)</small></div><b>${count}</b><i data-lucide="chevron-right"></i></button>`).join("")}</div></section>
+      <section class="approved-panel executive-rule-card"><div class="approved-panel-head"><div><h3>Regra da visão</h3></div></div><div><i data-lucide="database"></i><p>Os dados desta aba são criados e corrigidos no <strong>Painel executivo</strong>. Os demais painéis apenas refletem a origem.</p></div></section>
+    </aside>
+  </div>`;
+}
+
+function approvedLineChart(values) {
+  const points = values.map((value, index) => `${index * (100 / Math.max(values.length - 1, 1))},${92 - Math.min(86, value * .78)}`).join(" ");
+  return `<div class="approved-line-chart"><div class="approved-chart-y"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><path class="approved-grid-lines" d="M0 16H100M0 36H100M0 56H100M0 76H100"></path><polyline class="approved-line-target" points="0,22 100,22"></polyline><polyline class="approved-line-main" points="${points}"></polyline>${values.map((value,index)=>`<circle cx="${index*(100/Math.max(values.length-1,1))}" cy="${92-Math.min(86,value*.78)}" r="1.5"></circle>`).join("")}</svg><div class="approved-chart-x">${["Mar","Abr","Mai","Jun","Jul","Ago"].map((m)=>`<span>${m}</span>`).join("")}</div></div>`;
+}
+
+function approvedBrazilMap(units) {
+  return `<div class="approved-brazil-map"><img src="./assets/brazil-states.svg" alt="Mapa do Brasil com unidades por risco" />${units.map((unit,index)=>{ const point=mapPointForUnit(unit,index); const risk=riskLevel(unit); return `<button class="${risk.className}" style="--x:${point.x}%;--y:${point.y}%" data-select-unit="${escapeHtml(unit.id)}" type="button" title="${escapeHtml(unit.city)}: risco ${escapeHtml(risk.label)}"><span></span></button>`; }).join("")}</div><div class="approved-map-legend"><span><i class="green"></i>Saudável</span><span><i class="amber"></i>Atenção</span><span><i class="red"></i>Crítica</span></div>`;
+}
+
+function riskMatrixCoordinates(unit) {
+  const progress = unitProgress(unit);
+  const stats = unitStats(unit);
+  const deadline = daysTo(unit.openingDate);
+
+  let probability = 1;
+  if ((deadline !== null && deadline < -60) || stats.overduePending >= 12 || stats.openPending >= 45) probability = 5;
+  else if ((deadline !== null && deadline < -30) || stats.overduePending >= 8 || stats.openPending >= 32) probability = 4;
+  else if ((deadline !== null && deadline < 0) || stats.overduePending >= 4 || stats.openPending >= 20) probability = 3;
+  else if (stats.overduePending > 0 || stats.openPending >= 8) probability = 2;
+
+  let impact = 1;
+  if (progress.percent < 20 || stats.overduePending >= 12) impact = 5;
+  else if (progress.percent < 40 || stats.overduePending >= 8) impact = 4;
+  else if (progress.percent < 65 || stats.overduePending >= 4) impact = 3;
+  else if (progress.percent < READY_TO_OPEN_PROGRESS || stats.overduePending > 0) impact = 2;
+
+  return { probability, impact, score: probability * impact };
+}
+
+function riskMatrixTone(score) {
+  if (score >= 15) return "extreme";
+  if (score >= 8) return "high";
+  if (score >= 3) return "medium";
+  return "low";
+}
+
+function approvedRiskMatrix(units) {
+  const probabilityLabels = ["Muito baixa", "Baixa", "Média", "Alta", "Muito alta"];
+  const impactLabels = ["Muito baixa", "Baixa", "Média", "Alta", "Muito alta"];
+  const positionedUnits = units.map((unit) => ({ unit, ...riskMatrixCoordinates(unit) }));
+  const cells = ['<span class="risk-matrix-corner" aria-hidden="true"></span>'];
+
+  probabilityLabels.forEach((label, index) => {
+    cells.push(`<span class="risk-matrix-column"><b>${index + 1}</b><small>${escapeHtml(label)}</small></span>`);
+  });
+
+  for (let impact = 5; impact >= 1; impact -= 1) {
+    cells.push(`<span class="risk-matrix-row"><b>${impact}</b><small>${escapeHtml(impactLabels[impact - 1])}</small></span>`);
+    for (let probability = 1; probability <= 5; probability += 1) {
+      const score = impact * probability;
+      const cellUnits = positionedUnits.filter((item) => item.impact === impact && item.probability === probability);
+      cells.push(`<div class="risk-matrix-cell ${riskMatrixTone(score)}"><strong>${score}</strong><div>${cellUnits.map(({ unit }) => {
+        const initials = String(unit.city || unit.name || "U").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+        return `<button data-select-unit="${escapeHtml(unit.id)}" type="button" title="${escapeHtml(unit.city)}: impacto ${impact}, probabilidade ${probability}">${escapeHtml(initials)}</button>`;
+      }).join("")}</div></div>`);
+    }
+  }
+
+  return `<div class="risk-matrix-scroll"><div class="risk-matrix-frame"><span class="risk-matrix-y-axis">Impacto</span><div class="risk-matrix-grid">${cells.join("")}</div><span class="risk-matrix-x-axis">Probabilidade</span></div></div><div class="risk-matrix-legend"><span><i class="low"></i>Baixo</span><span><i class="medium"></i>Médio</span><span><i class="high"></i>Alto</span><span><i class="extreme"></i>Extremo</span></div>`;
+}
+
+function approvedRankingTable(units) {
+  const ranking = [...units].sort((a,b)=>unitProgress(b).percent-unitProgress(a).percent).slice(0,6);
+  return `<div class="approved-table-wrap"><table class="approved-table ranking"><thead><tr><th>Unidade</th><th>Implantação</th><th>Credenciamento</th><th>Conformidade</th><th>Desempenho</th></tr></thead><tbody>${ranking.map((unit)=>{ const p=unitProgress(unit).percent; const acc=Math.min(100, Math.max(0,p-4)); const compliance=Math.min(100,p+3); return `<tr><td><strong>${escapeHtml(unit.city)}${unit.state ? `/${escapeHtml(unit.state)}` : ""}</strong></td>${[p,acc,compliance].map((v)=>`<td><div class="approved-cell-progress"><span><i style="width:${v}%"></i></span><b>${v}%</b></div></td>`).join("")}<td>${statusBadge(p>=90?"Excelente":p>=60?"Atenção":"Em risco")}</td></tr>`;}).join("")}</tbody></table></div>`;
+}
+
+function approvedDonut(value, total, label) {
+  const percent = percentOf(value, Math.max(total,1));
+  return `<div class="approved-donut-layout"><div class="approved-donut" style="--donut:${percent}%"><span><strong>${value}</strong><small>${escapeHtml(label)}</small></span></div><div><strong>${percent}%</strong><p>do total monitorado</p><span class="approved-live"><i data-lucide="circle-check"></i>Dados da rede</span></div></div>`;
+}
+
+function renderIndicatorsPanel() {
+  const context = approvedContext("indicators");
+  const categories = ["Visão geral", "Implantação", "Credenciamento", "Operação", "Financeiro", "Pessoas", "Qualidade"];
+  const active = categories.includes(state.approvedTabs.indicators) ? state.approvedTabs.indicators : "Visão geral";
+  const allIndicators = buildApprovedIndicators(context);
+  const indicators = allIndicators.filter((item)=>active === "Visão geral" || item.category === active);
+  const achieved = allIndicators.filter((item)=>item.status === "Meta atingida").length;
+  const attention = allIndicators.filter((item)=>item.status === "Atenção").length;
+  const critical = allIndicators.filter((item)=>item.status === "Crítico").length;
+  return `<div class="approved-module-wrap">
+    <section class="approved-page-head"><div class="approved-title"><div><h1>Indicadores</h1><p>Catálogo oficial de KPIs estratégicos e operacionais.</p></div></div><div class="approved-page-actions"><button class="approved-secondary" data-toggle-filters="indicators" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible.indicators)}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="approved-secondary" data-approved-export="indicators" type="button"><i data-lucide="download"></i>Exportar</button><button class="approved-primary" data-approved-create="indicators" type="button"><i data-lucide="plus"></i>Novo indicador</button></div></section>
+    ${state.approvedFiltersVisible.indicators ? renderApprovedFilters("indicators", { title: "Indicadores", filters: ["Período", "Área", "Unidade", "Status"] }, context) : ""}
+    <div class="approved-metric-grid indicator-metrics reference-four">${[["Indicadores ativos", allIndicators.length, "chart-bar-big", "slate", ""], ["Meta atingida", achieved, "circle-check", "green", "Meta atingida"], ["Em atenção", attention, "circle-alert", "amber", "Atenção"], ["Críticos", critical, "triangle-alert", "red", "Crítico"]].map(([label,value,icon,tone,status])=>`<button class="approved-metric ${tone}${state.approvedFilters.indicators?.workflowStatus === status ? " active" : ""}" ${status ? `data-indicator-status="${status}"` : `data-approved-metric="indicators"`} type="button"><span><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong><em>${status ? "filtrar catálogo" : "catálogo atual"}</em></div><div class="approved-mini-trend"><i></i><i></i><i></i><i></i></div></button>`).join("")}</div>
+    <nav class="approved-tabs indicator-tabs" role="tablist" aria-label="Categorias de indicadores">${categories.map(tab=>`<button class="${active===tab?"active":""}" data-approved-tab="indicators" data-approved-tab-value="${tab}" type="button" role="tab" aria-selected="${active===tab}">${tab}</button>`).join("")}</nav>
+    ${active === "Visão geral" ? renderIndicatorOverview(allIndicators, context) : renderIndicatorCategoryWorkspace(active, indicators)}
+  </div>`;
+}
+
+function buildApprovedIndicators(context) {
+  const statusFor = (tone) => tone === "green" ? "Meta atingida" : tone === "amber" ? "Atenção" : tone === "red" ? "Crítico" : "Sem dados";
+  const implantValue = context.average;
+  const credentialValue = Math.min(100, Math.max(0, Math.round((context.units.flatMap((unit)=>unit.accreditation || []).filter((item)=>String(item.status || "").toLowerCase().includes("fechad")).length / Math.max(context.units.flatMap((unit)=>unit.accreditation || []).length, 1)) * 100)));
+  const operationValue = Math.max(0, 100 - percentOf(context.critical.length, Math.max(context.open.length, 1)));
+  const base = [
+    {name:"Avanço médio da implantação",subtitle:"Jornada de implantação",category:"Implantação",value:implantValue,meta:75,tone:implantValue>=75?"green":implantValue>=60?"amber":"red",owner:"Implantação",updated:"Atualizado hoje",unit:"Toda a rede"},
+    {name:"Cobertura de prestadores",subtitle:"Credenciamento",category:"Credenciamento",value:credentialValue,meta:80,tone:credentialValue>=80?"green":credentialValue>=60?"amber":"red",owner:"Credenciamento",updated:"Atualizado hoje",unit:"Toda a rede"},
+    {name:"Pendências críticas vencidas",subtitle:"Operação",category:"Operação",value:context.critical.length,meta:3,tone:context.critical.length<=3?"green":context.critical.length<=6?"amber":"red",owner:"Operação",updated:"Atualizado há 1h",unit:"Toda a rede",limit:true},
+    {name:"Conclusão de treinamentos",subtitle:"Treinamentos",category:"Operação",value:Math.min(100,implantValue+12),meta:90,tone:implantValue+12>=90?"green":"amber",owner:"Universidade 33Doctor",updated:"Atualizado hoje",unit:"Toda a rede"},
+    {name:"Margem operacional da rede",subtitle:"Financeiro",category:"Financeiro",value:Math.max(0,implantValue-8),meta:70,tone:implantValue-8>=70?"green":implantValue-8>=50?"amber":"red",owner:"Financeiro",updated:"Atualizado há 2h",unit:"Toda a rede"},
+    {name:"Engajamento das equipes",subtitle:"Pessoas",category:"Pessoas",value:Math.min(100,implantValue+9),meta:80,tone:implantValue+9>=80?"green":"amber",owner:"Recursos Humanos",updated:"Atualizado ontem",unit:"Toda a rede"},
+    {name:"Conformidade dos processos",subtitle:"Qualidade",category:"Qualidade",value:Math.max(0,100-percentOf(context.open.length,Math.max(context.tasks.length,1))),meta:85,tone:"amber",owner:"Qualidade e Processos",updated:"Atualizado hoje",unit:"Toda a rede"},
+  ].map((item)=>({...item,status:statusFor(item.tone),source:"base"}));
+  const custom = context.records.map((record) => {
+    const value = Number(record.value ?? record.result ?? 0);
+    const meta = Number(record.meta ?? record.target ?? 100);
+    const tone = record.status === "Concluído" || value >= meta ? "green" : record.priority === "Crítica" || record.status === "Crítico" ? "red" : "amber";
+    return {
+      name: record.title || record.name || "Indicador sem nome",
+      subtitle: record.objective || record.description || "Indicador personalizado",
+      category: record.category || "Operação",
+      value,
+      meta,
+      tone,
+      status: statusFor(tone),
+      owner: record.owner || "Responsável não definido",
+      updated: record.updatedAt ? formatDate(record.updatedAt) : "Atualizado recentemente",
+      unit: unitForId(record.unitId)?.city || "Toda a rede",
+      source:"custom",
+      record,
+    };
+  });
+  return [...base, ...custom];
+}
+
+function approvedIndicatorsTable(indicators) {
+  return `<div class="approved-table-wrap"><table class="approved-table indicator-table"><thead><tr><th>Registro</th><th>Unidade</th><th>Status</th><th>Indicador</th><th>Prazo</th><th>Responsável</th><th></th></tr></thead><tbody>${indicators.map((i)=>`<tr><td><strong>${escapeHtml(i.name)}</strong><small>${escapeHtml(i.subtitle || i.category)}</small></td><td>${escapeHtml(i.unit || "Toda a rede")}</td><td><span class="approved-status ${i.tone}">${escapeHtml(i.status)}</span></td><td><b>${i.value}${i.limit ? "" : "%"}</b> / ${i.limit ? "limite" : "meta"} ${i.meta}${i.limit ? "" : "%"}</td><td>${escapeHtml(i.updated || "Sem atualização")}</td><td>${escapeHtml(i.owner)}</td><td>${i.record ? `<button class="icon-button compact" data-approved-edit="indicators" data-unit-id="${escapeHtml(i.record.unitId)}" data-record-type="${escapeHtml(i.record.recordType)}" data-record-id="${escapeHtml(i.record.recordId)}" type="button" aria-label="Editar indicador"><i data-lucide="pencil"></i></button>` : '<i data-lucide="chevron-right"></i>'}</td></tr>`).join("") || `<tr><td colspan="7">Nenhum indicador nesta categoria.</td></tr>`}</tbody></table></div>`;
+}
+
+function approvedIndicatorAttention(indicators) {
+  const rows = indicators.filter(i=>i.tone!=="green").slice(0,4);
+  return `<div class="approved-attention-list">${rows.map(i=>`<button data-indicator-status="${escapeHtml(i.status)}" type="button"><span class="approved-alert-icon"><i data-lucide="${i.tone==="red"?"triangle-alert":"clock-3"}"></i></span><span><strong>${escapeHtml(i.name)}</strong><small>${escapeHtml(i.category)} · ${i.value}${i.limit?"":"%"}</small></span><i data-lucide="chevron-right"></i></button>`).join("") || empty("Nenhum indicador requer ação.")}</div>`;
+}
+
+function renderIndicatorOverview(indicators, context) {
+  const achieved = indicators.filter((item)=>item.status === "Meta atingida").length;
+  const attentionRows = indicators.filter((item)=>item.status !== "Meta atingida");
+  return `<div class="approved-dashboard-grid indicators-overview-grid">
+    <section class="approved-panel"><div class="approved-panel-head"><div><h3>Desempenho dos indicadores</h3></div><div class="indicator-chart-legend"><span><i class="result"></i>Resultado</span><span><i class="target"></i>Meta</span></div></div>${approvedLineChart([61,64,66,65,68,Math.max(1,context.average)])}</section>
+    <aside class="approved-panel"><div class="approved-panel-head"><div><h3>Indicadores por status</h3></div></div>${renderIndicatorStatusDistribution(indicators)}</aside>
+    <section class="approved-panel"><div class="approved-panel-head"><div><h3>Indicadores acompanhados</h3></div><button class="approved-secondary" data-indicator-catalog type="button">Abrir catálogo<i data-lucide="arrow-right"></i></button></div>${approvedIndicatorsTable(indicators.slice(0,8))}</section>
+    <aside class="approved-panel"><div class="approved-panel-head"><div><h3>Requer ação</h3></div></div>${approvedIndicatorAttention(attentionRows)}</aside>
+  </div>`;
+}
+
+function renderIndicatorStatusDistribution(indicators) {
+  const counts = [
+    ["Meta atingida", indicators.filter((item)=>item.status === "Meta atingida").length, "green"],
+    ["Atenção", indicators.filter((item)=>item.status === "Atenção").length, "amber"],
+    ["Críticos", indicators.filter((item)=>item.status === "Crítico").length, "red"],
+    ["Sem dados", indicators.filter((item)=>item.status === "Sem dados").length, "slate"],
+  ];
+  const total = Math.max(indicators.length, 1);
+  const first = percentOf(counts[0][1], total);
+  const second = first + percentOf(counts[1][1], total);
+  const third = second + percentOf(counts[2][1], total);
+  return `<div class="indicator-status-distribution"><div class="indicator-status-donut" style="--meta:${first}%;--attention:${second}%;--critical:${third}%"><span><strong>${indicators.length}</strong><small>indicadores</small></span></div><div>${counts.map(([label,count,tone])=>`<button data-indicator-status="${label === "Críticos" ? "Crítico" : label}" type="button"><i class="${tone}"></i><span>${label}</span><b>${count}</b></button>`).join("")}</div></div>`;
+}
+
+function renderIndicatorCategoryWorkspace(active, indicators) {
+  const activeStatus = state.approvedFilters.indicators?.workflowStatus || "";
+  const visible = activeStatus ? indicators.filter((item)=>item.status === activeStatus) : indicators;
+  const workflows = ["Meta atingida", "Atenção", "Crítico", "Sem dados"];
+  const rows = visible.length
+    ? approvedIndicatorsTable(visible)
+    : `<div class="executive-decision-empty"><i data-lucide="chart-no-axes-combined"></i><strong>Nenhum registro nesta visão</strong><p>Crie o primeiro KPI de ${escapeHtml(active.toLowerCase())} para iniciar o acompanhamento.</p><button class="approved-primary" data-approved-create="indicators" type="button"><i data-lucide="plus"></i>Criar indicador</button></div>`;
+  return `<div class="indicator-category-workspace">
+    <section class="approved-panel indicator-category-main"><div class="approved-panel-head"><div><span>CATÁLOGO DE INDICADORES</span><h3>${escapeHtml(active)}</h3><p>Metas, responsáveis e atualização dos KPIs desta área.</p></div><button class="approved-secondary" data-approved-create="indicators" type="button">Novo indicador<i data-lucide="arrow-right"></i></button></div>${rows}</section>
+    <aside class="indicator-category-side">
+      <section class="approved-panel"><div class="approved-panel-head"><div><h3>Status do workflow</h3><p>Filtre o catálogo por situação.</p></div></div><div class="indicator-workflow-list">${workflows.map((status,index)=>{const count=indicators.filter((item)=>item.status===status).length;return `<button class="${activeStatus===status?"active":""}" data-indicator-status="${status}" type="button" aria-pressed="${activeStatus===status}"><span class="${index===0?"done":""}"><i data-lucide="${index===0?"check":"clock-3"}"></i></span><div><strong>${status}</strong><small>Filtrar indicador</small></div><b>${count}</b><i data-lucide="chevron-right"></i></button>`;}).join("")}</div></section>
+      <section class="approved-panel indicator-rule-card"><div class="approved-panel-head"><div><h3>Regra da visão</h3></div></div><div><i data-lucide="database"></i><p>Os KPIs são criados e atualizados em <strong>Indicadores</strong>. Os painéis executivos apenas refletem esta fonte oficial.</p></div></section>
+    </aside>
+  </div>`;
+}
+
+function renderFranchises() {
+  const context = approvedContext("franchises");
+  const focusedUnit = state.franchiseWorkspaceUnitId ? context.units.find((unit) => unit.id === state.franchiseWorkspaceUnitId) : null;
+  if (focusedUnit) return renderUnitWorkspacePage(focusedUnit, context.units);
+  const franchiseTabs = ["Todas", "Em implantação", "Em operação", "Em atraso", "Planejadas"];
+  const active = franchiseTabs.includes(state.approvedTabs.franchises) ? state.approvedTabs.franchises : "Todas";
+  const filters = state.approvedFilters.franchises || {};
+  const search = String(filters.search || "").toLowerCase();
+  const mode = state.approvedViewModes.franchises || "cards";
+  const filtered = context.units.filter((unit) => {
+    const status = unitStatus(unit).label;
+    const risk = riskLevel(unit).label;
+    const byTab = active === "Todas" || (active === "Em implantação" && unitProgress(unit).percent < 90) || (active === "Em operação" && unitProgress(unit).percent >= 90) || (active === "Em atraso" && status === "Em atraso") || (active === "Com risco" && risk !== "Baixo");
+    const bySearch = !search || [unit.city,unit.state,unit.name,unit.franchisee,unit.owner].join(" ").toLowerCase().includes(search);
+    const byStatus = !filters.status || filters.status === "all" || status === filters.status;
+    const byState = !filters.estado || filters.estado === "all" || unit.state === filters.estado;
+    const byOwner = !filters.responsavel || filters.responsavel === "all" || (unit.owner || "Implantação") === filters.responsavel;
+    return byTab && bySearch && byStatus && byState && byOwner;
+  });
+  const delayed = context.units.filter((unit)=>unitStatus(unit).label==="Em atraso").length;
+  const riskCount = context.units.filter((unit)=>riskLevel(unit).label!=="Baixo").length;
+  const states = [...new Set(context.units.map((unit)=>unit.state).filter(Boolean))];
+  const owners = [...new Set(context.units.map((unit)=>unit.owner||"Implantação"))];
+  return `<div class="approved-module-wrap">
+    <section class="approved-page-head"><div class="approved-title"><div><h1>Unidades</h1><p>Pasta digital única de cada franquia e visão completa da rede.</p></div></div><div class="approved-page-actions"><button class="approved-secondary" data-toggle-filters="franchises" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible.franchises)}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="approved-secondary" data-approved-export="franchises" type="button"><i data-lucide="download"></i>Exportar</button>${canCreateFranchise()?'<button class="approved-primary" data-approved-create="franchises" type="button"><i data-lucide="plus"></i>Nova unidade</button>':""}</div></section>
+    ${state.approvedFiltersVisible.franchises ? `<section class="approved-filterbar"><label class="approved-search"><i data-lucide="search"></i><input data-approved-filter="franchises" data-approved-filter-key="search" type="search" value="${escapeHtml(filters.search||"")}" placeholder="Buscar unidade" /></label><label><span>Status</span><select data-approved-filter="franchises" data-approved-filter-key="status"><option value="all">Todos os status</option>${["Em implantação","Em operação","Em atraso","Pronta para inauguração"].map(v=>`<option${filters.status===v?" selected":""}>${v}</option>`).join("")}</select></label><label><span>Estado</span><select data-approved-filter="franchises" data-approved-filter-key="estado"><option value="all">Todos os estados</option>${states.map(v=>`<option${filters.estado===v?" selected":""}>${v}</option>`).join("")}</select></label><label><span>Responsável</span><select data-approved-filter="franchises" data-approved-filter-key="responsavel"><option value="all">Todos os responsáveis</option>${owners.map(v=>`<option${filters.responsavel===v?" selected":""}>${escapeHtml(v)}</option>`).join("")}</select></label></section>` : ""}
+    <div class="approved-metric-grid reference-four">${[["Total de unidades",context.units.length,"building-2","slate","Todas"],["Em implantação",context.units.filter(u=>unitProgress(u).percent<90).length,"loader-circle","amber","Em implantação"],["Em operação",context.units.filter(u=>unitProgress(u).percent>=90).length,"circle-check","green","Em operação"],["Em atraso",delayed,"clock-alert","red","Em atraso"]].map(([label,value,icon,tone,tab])=>`<button class="approved-metric ${tone}" data-approved-metric="franchises" data-metric-tab="${escapeHtml(tab)}" type="button"><span><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong><em>rede monitorada</em></div><div class="approved-mini-trend"><i></i><i></i><i></i><i></i></div></button>`).join("")}</div>
+    <section class="approved-panel approved-units-panel"><div class="approved-units-toolbar"><nav class="approved-tabs" role="tablist" aria-label="Status das unidades">${franchiseTabs.map(tab=>`<button class="${active===tab?"active":""}" data-approved-tab="franchises" data-approved-tab-value="${tab}" type="button" role="tab" aria-selected="${active===tab}">${tab}</button>`).join("")}</nav></div>${renderApprovedUnitsView(filtered,"cards",context)}</section>
+  </div>`;
+}
+
+function renderApprovedUnitsView(units, mode, context) {
+  if (mode === "map") return `<div class="approved-units-map-layout"><div>${approvedBrazilMap(units)}</div><aside><div class="approved-panel-head"><div><h3>Ações rápidas</h3><p>Rotinas da rede.</p></div></div>${approvedUnitQuickActions()}</aside></div>`;
+  if (mode === "list") return `${approvedRankingTable(units)}<div class="approved-units-foot"><span>Mostrando ${units.length} de ${context.units.length} unidades</span></div>`;
+  return `<div class="approved-units-layout"><div class="approved-units-main"><div class="approved-panel-head"><div><h2>Rede 33Doctor</h2><p>Unidades e situação atual da implantação.</p></div></div><div class="approved-unit-cards">${units.map((unit)=>approvedUnitCard(unit)).join("") || empty("Nenhuma unidade encontrada.")}</div></div><aside class="approved-units-side"><div class="approved-panel-head"><div><h2>Ações rápidas</h2><p>Rotinas da rede.</p></div></div>${approvedUnitQuickActions()}<div class="approved-panel-head approved-attention-heading"><div><h2>Exige atenção</h2><p>Pendências prioritárias das unidades.</p></div></div>${approvedAttention(context, 2)}</aside></div>`;
+}
+
+function approvedUnitCard(unit) {
+  const progress=unitProgress(unit); const stats=unitStats(unit); const risk=riskLevel(unit); const status=unitStatus(unit);
+  const next=(unit.tasks||[]).find(task=>getStatus(task)!=="Concluído");
+  return `<button class="approved-unit-card" data-select-unit="${escapeHtml(unit.id)}" type="button"><header><span class="approved-building-icon"><i data-lucide="building-2"></i></span><div><strong>${escapeHtml(unit.city)}${unit.state?`/${escapeHtml(unit.state)}`:""}</strong><small>${escapeHtml(unit.franchisee||unit.name||"Franquia 33Doctor")}</small></div><span class="icon-button compact"><i data-lucide="ellipsis"></i></span></header><div class="approved-unit-state"><span>${statusBadge(status.label)}</span><b>${stats.openPending} pendência(s)</b></div><div class="approved-progress-row"><span>Implantação</span><i><b style="width:${progress.percent}%"></b></i><strong>${progress.percent}%</strong></div><dl><div><dt>Próximo marco</dt><dd>${escapeHtml(next?.process||"Revisão operacional")}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(unit.owner||"Implantação")}</dd></div><div><dt>Risco</dt><dd><span class="${risk.className}">${escapeHtml(risk.label)}</span></dd></div></dl><span class="approved-card-action">Abrir unidade<i data-lucide="arrow-right"></i></span></button>`;
+}
+
+function approvedUnitQuickActions() {
+  return `<div class="approved-quick-list"><button data-approved-quick="franchises" data-approved-quick-index="0" type="button"><i data-lucide="folder-open"></i><span>Abrir pasta digital<small>Documentos e histórico</small></span><i data-lucide="chevron-right"></i></button><button data-approved-quick="franchises" data-approved-quick-index="1" type="button"><i data-lucide="user-round-cog"></i><span>Atribuir responsável<small>Gestão da unidade</small></span><i data-lucide="chevron-right"></i></button><button data-approved-create="implantation" type="button"><i data-lucide="route"></i><span>Iniciar jornada<small>Template de implantação</small></span><i data-lucide="chevron-right"></i></button></div>`;
+}
+
+function renderImplantationDashboard() {
+  const context=approvedContext("implantation");
+  const implantationTabs=["Etapas","Linha do tempo","Caminho crítico","Evidências","Checkpoints"];
+  const active=implantationTabs.includes(state.approvedTabs.implantation)?state.approvedTabs.implantation:"Etapas";
+  const stages=["Venda","Onboarding","Planejamento","Estrutura","Credenciamento","Treinamento","Pré-inauguração","Inauguração","Operação assistida"];
+  const units=approvedFilteredUnits("implantation",context);
+  return `<div class="approved-module-wrap">
+    <section class="approved-page-head"><div class="approved-title"><div><h1>Jornada de implantação</h1><p>Etapas, prazos e aprovações das unidades até a operação assistida.</p></div></div><div class="approved-page-actions"><button class="approved-secondary" data-toggle-filters="implantation" type="button" aria-pressed="${Boolean(state.approvedFiltersVisible.implantation)}"><i data-lucide="sliders-horizontal"></i>Filtros</button><button class="approved-secondary" data-approved-export="implantation" type="button"><i data-lucide="download"></i>Exportar</button><button class="approved-primary" data-approved-create="implantation" type="button"><i data-lucide="plus"></i>Iniciar jornada</button></div></section>
+    ${state.approvedFiltersVisible.implantation ? renderApprovedFilters("implantation",{title:"Jornada de implantação",filters:["Unidade","Responsável","Risco"]},context) : ""}
+    <div class="approved-metric-grid reference-four">${[["Unidades em jornada",units.length,"building-2","slate"],["Etapas concluídas",context.tasks.filter(({task})=>getStatus(task)==="Concluído").length,"circle-check","green"],["Em andamento",context.tasks.filter(({task})=>getStatus(task)==="Em Andamento").length,"circle-alert","amber"],["Bloqueadas",context.critical.length,"lock-keyhole","red"]].map(([l,v,i,t])=>`<article class="approved-metric ${t}"><span><i data-lucide="${i}"></i></span><div><small>${l}</small><strong>${v}</strong><em>rede monitorada</em></div><div class="approved-mini-trend"><i></i><i></i><i></i><i></i></div></article>`).join("")}</div>
+    <nav class="approved-tabs" role="tablist" aria-label="Visualização da jornada">${implantationTabs.map(tab=>`<button class="${active===tab?"active":""}" data-approved-tab="implantation" data-approved-tab-value="${tab}" type="button" role="tab" aria-selected="${active===tab}">${tab}</button>`).join("")}</nav>
+    <section class="approved-journey-ruler">${stages.map((stage,index)=>`<button class="${index<Math.round(context.average/100*stages.length)?"done":""}" data-journey-stage="${escapeHtml(stage)}" type="button"><span>${index+1}</span><small>${stage}</small></button>`).join("")}</section>
+    <section class="approved-panel"><div class="approved-units-toolbar"><div></div><div class="approved-view-switch"><select data-approved-filter="implantation" data-approved-filter-key="ciclo"><option>Ciclo: Todos</option><option>Pré-abertura</option><option>Pós-abertura</option></select><select data-approved-filter="implantation" data-approved-filter-key="ordem"><option>Maior risco</option><option>Menor progresso</option><option>Próximo prazo</option></select></div></div>${renderJourneyMode(active,units,stages,context)}</section>
+  </div>`;
+}
+
+function renderJourneyMode(active,units,stages,context){
+  if(active==="Linha do tempo") return `<div class="approved-timeline-list">${context.tasks.filter(({task})=>task.actualDate||task.deadline).slice(0,12).map(({unit,task})=>`<article><span></span><time>${formatDate(task.actualDate||task.deadline)}</time><div><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(getStatus(task))}</small></div></article>`).join("")}</div>`;
+  if(active==="Caminho crítico") {
+    const critical = context.tasks.filter(({unit,task}) => getStatus(task) !== "Concluído" && pendingPriority(task, unit) === "Alta").slice(0, 18);
+    return `<div class="approved-critical-path"><header><div><h3>Caminho crítico da implantação</h3><p>Etapas que podem comprometer prazo, inauguração ou operação assistida.</p></div><button class="approved-primary compact" data-approved-create="implantation" type="button"><i data-lucide="plus"></i>Nova etapa</button></header><div>${critical.map(({unit,task}, index) => `<button data-approved-preview="implantation" data-unit-id="${escapeHtml(unit.id)}" data-title="${escapeHtml(task.process)}" data-status="${escapeHtml(getStatus(task))}" data-owner="${escapeHtml(task.owner || unit.owner || "Implantação")}" data-category="${escapeHtml(task.phase || "Implantação")}" data-deadline="${escapeHtml(task.deadline || "")}" data-notes="${escapeHtml(task.notes || "")}" type="button"><span>${String(index + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(unit.city)} · ${escapeHtml(task.phase || "Implantação")}</small></div>${statusBadge(getStatus(task))}<i data-lucide="chevron-right"></i></button>`).join("") || empty("Nenhuma etapa crítica nos filtros atuais.")}</div></div>`;
+  }
+  if(active==="Evidências") {
+    const evidenceRecords = allOperationalRecords().filter((record) => !record.hidden && record.attachment).slice(0, 24);
+    return `<div class="approved-evidence-workspace"><header><div><h3>Evidências da implantação</h3><p>Arquivos, comprovantes e registros vinculados às etapas das unidades.</p></div><button class="approved-primary compact" data-approved-create="documentation" type="button"><i data-lucide="upload"></i>Enviar evidência</button></header><div class="approved-evidence-grid">${evidenceRecords.map((record) => `<button data-approved-edit="documentation" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button"><span><i data-lucide="file-check-2"></i></span><div><strong>${escapeHtml(record.title || "Evidência")}</strong><small>${escapeHtml(unitForId(record.unitId)?.city || "Rede 33Doctor")} · ${escapeHtml(record.owner || "Implantação")}</small></div><em>${escapeHtml(record.status || "Anexado")}</em></button>`).join("") || `<div class="approved-drawer-empty"><i data-lucide="files"></i><strong>Nenhuma evidência anexada</strong><span>Envie o primeiro arquivo para iniciar o histórico documental.</span></div>`}</div></div>`;
+  }
+  if(active==="Checkpoints") {
+    return `<div class="approved-checkpoint-grid">${units.map((unit) => { const progress = unitProgress(unit); const completed = (unit.tasks || []).filter((task) => getStatus(task) === "Concluído").length; const total = (unit.tasks || []).length; return `<article><header><span><i data-lucide="flag"></i></span><div><strong>${escapeHtml(unit.city)}${unit.state ? `/${escapeHtml(unit.state)}` : ""}</strong><small>${completed} de ${total} etapas validadas</small></div>${statusBadge(unitStatus(unit).label)}</header><div class="approved-progress-row"><span>Prontidão</span><i><b style="width:${progress.percent}%"></b></i><strong>${progress.percent}%</strong></div><ul><li><i data-lucide="${progress.percent >= 35 ? "circle-check" : "circle-dashed"}"></i>Planejamento validado</li><li><i data-lucide="${progress.percent >= 60 ? "circle-check" : "circle-dashed"}"></i>Estrutura validada</li><li><i data-lucide="${progress.percent >= 90 ? "circle-check" : "circle-dashed"}"></i>Liberação para inauguração</li></ul><button data-select-unit="${escapeHtml(unit.id)}" type="button">Abrir checkpoint<i data-lucide="arrow-right"></i></button></article>`; }).join("")}</div>`;
+  }
+  const cards=units.slice(0,5).map((unit,index)=>{const p=unitProgress(unit);const next=(unit.tasks||[]).find(t=>getStatus(t)!=="Concluído");const risk=riskLevel(unit);return `<article class="approved-journey-card"><header><span>${escapeHtml(stages[Math.min(stages.length-1,Math.floor(p.percent/9))])}</span><b>${escapeHtml(unit.city)}/${escapeHtml(unit.state||"")}</b><button class="icon-button compact" data-select-unit="${escapeHtml(unit.id)}" type="button"><i data-lucide="ellipsis"></i></button></header><div class="approved-progress-row"><span>Progresso total</span><i><b style="width:${p.percent}%"></b></i><strong>${p.percent}%</strong></div><dl><div><dt>Dias na etapa</dt><dd>${Math.max(1,Math.round((100-p.percent)/5))}</dd></div><div><dt>Risco</dt><dd><span class="${risk.className}">${risk.label}</span></dd></div><div><dt>Responsável</dt><dd>${escapeHtml(unit.owner||"Implantação")}</dd></div><div><dt>Próximo</dt><dd>${escapeHtml(next?.process||"Operação assistida")}</dd></div></dl><button class="approved-card-action" data-select-unit="${escapeHtml(unit.id)}" type="button">Abrir jornada<i data-lucide="arrow-right"></i></button></article>`}).join("");
+  return `<div class="approved-journey-board"><div><div class="approved-panel-head"><div><h2>Etapas por unidade</h2><p>Acompanhe avanço, risco, responsável e próximo marco.</p></div></div><div class="approved-journey-cards">${cards}</div></div><aside><div class="approved-gate-alert"><i data-lucide="triangle-alert"></i><span><h2>Exige liberação</h2><small>Há etapa aguardando aprovação.</small></span></div><h2>Agenda da semana</h2>${approvedTimelineSummary(units, "Agenda da semana")}</aside></div>`;
+}
+
+function renderApprovedDocumentLibrary(context) {
+  const folders = state.documentFolders || [];
+  const rootFolders = folders.filter((folder) => !folder.parentId);
+  const documents = context.records.filter((record) => record.attachment || record.title).slice(0, 8);
+  const renderFolder = (folder, level = 0) => {
+    const children = folders.filter((item) => item.parentId === folder.id);
+    return `<div class="approved-folder" style="--folder-level:${level}"><button data-approved-tab="documentation" data-approved-tab-value="Biblioteca" type="button"><i data-lucide="folder"></i><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.area || "Biblioteca")}</small></span><em>${children.length}</em></button><button class="icon-button compact" data-add-document-folder data-parent-id="${escapeHtml(folder.id)}" type="button" title="Criar subpasta"><i data-lucide="folder-plus"></i></button></div>${children.map((child) => renderFolder(child, level + 1)).join("")}`;
+  };
+  return `<div class="approved-library-grid"><section class="approved-panel"><div class="approved-panel-head"><div><h3>Bibliotecas</h3><p>Pastas e subpastas organizadas livremente por área.</p></div><button class="approved-secondary compact" data-add-document-folder type="button"><i data-lucide="folder-plus"></i>Nova pasta</button></div><div class="approved-folder-tree">${rootFolders.map((folder)=>renderFolder(folder)).join("") || empty("Nenhuma pasta criada.")}</div></section><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h3>Documentos recentes</h3><p>Arquivos, evidências e documentos da rede.</p></div><button class="approved-primary compact" data-approved-create="documentation" type="button"><i data-lucide="upload"></i>Enviar documento</button></div><div class="approved-document-grid">${documents.map((record)=>`<article><span><i data-lucide="file-text"></i></span><div><strong>${escapeHtml(record.title || "Documento")}</strong><small>${escapeHtml(record.owner || "Rede 33Doctor")}</small></div><em>${escapeHtml(record.status || "Ativo")}</em></article>`).join("") || `<div class="approved-document-empty"><i data-lucide="files"></i><strong>Nenhum documento nesta biblioteca</strong><span>Envie o primeiro arquivo ou crie uma nova pasta.</span></div>`}</div></section></div>`;
+}
+
+const approvedWizardSchemas = {
+  credentialing: [
+    ["name", "Razão social / nome", "text", "Nome do prestador"],
+    ["document", "CPF/CNPJ", "text", "Documento fiscal"],
+    ["specialties", "Especialidades", "text", "Ex.: Cardiologia, Imagem"],
+    ["coverage", "Cobertura", "text", "Cidade, região e capacidade"],
+  ],
+  operation: [
+    ["title", "Título da ocorrência", "text", "Descreva a ocorrência"],
+    ["category", "Categoria", "select", ["Rotina", "Checklist", "Não conformidade", "Incidente"]],
+    ["description", "Descrição", "textarea", "Contexto e impacto operacional"],
+  ],
+  implantation: [
+    ["title", "Atividade", "text", "Nome da atividade ou marco"],
+    ["category", "Etapa", "select", ["Onboarding", "Planejamento", "Estrutura", "Credenciamento", "Treinamento", "Pré-inauguração"]],
+    ["description", "Descrição", "textarea", "Entregáveis e critérios de conclusão"],
+  ],
+  finance: [
+    ["title", "Descrição do lançamento", "text", "Ex.: Royalty da competência atual"],
+    ["category", "Tipo de lançamento", "select", ["Receita", "Despesa", "Royalty", "Taxa", "Repasse", "Conciliação"]],
+    ["amount", "Valor", "number", "0,00"],
+  ],
+  dp: [
+    ["title", "Colaborador ou processo", "text", "Nome do colaborador ou movimentação"],
+    ["category", "Movimentação", "select", ["Admissão", "Folha", "Férias", "Afastamento", "Benefício", "Obrigação"]],
+    ["description", "Detalhes trabalhistas", "textarea", "Cargo, documentos e orientações"],
+  ],
+  hr: [
+    ["title", "Vaga ou ação de pessoas", "text", "Ex.: Recepcionista da unidade"],
+    ["category", "Processo de RH", "select", ["Vaga", "Candidato", "Onboarding", "Avaliação", "Clima", "Desenvolvimento"]],
+    ["description", "Perfil e requisitos", "textarea", "Requisitos, competências e contexto da posição"],
+  ],
+  projects: [
+    ["title", "Nome do projeto", "text", "Ex.: Adequação arquitetônica"],
+    ["category", "Tipo de projeto", "select", ["Obra", "Tecnologia", "Compras", "Implantação", "Melhoria operacional"]],
+    ["description", "Escopo e entregáveis", "textarea", "Objetivo, entregas e critérios de aceite"],
+  ],
+  quality: [
+    ["title", "Processo ou ocorrência", "text", "Ex.: Auditoria de atendimento"],
+    ["category", "Tipo", "select", ["Processo", "Auditoria", "Não conformidade", "Plano de ação", "POP"]],
+    ["description", "Critério e evidência", "textarea", "Descreva o requisito, achado ou ação corretiva"],
+  ],
+  documentation: [
+    ["title", "Nome do documento", "text", "Ex.: POP de abertura da unidade"],
+    ["category", "Categoria", "select", ["Contrato", "Manual", "POP", "Política", "Formulário", "Evidência"]],
+    ["description", "Descrição e controle", "textarea", "Versão, finalidade e público do documento"],
+  ],
+  contracts: [
+    ["title", "Objeto do contrato", "text", "Ex.: Prestação de serviços laboratoriais"],
+    ["category", "Categoria contratual", "select", ["Franquia", "Fornecedor", "Prestador", "Trabalhista", "Locação", "Tecnologia"]],
+    ["description", "Partes e obrigações", "textarea", "Partes, vigência, valores e obrigações principais"],
+  ],
+  compliance: [
+    ["title", "Obrigação ou risco", "text", "Ex.: Renovação de licença sanitária"],
+    ["category", "Dimensão", "select", ["Regulatório", "LGPD", "Trabalhista", "Fiscal", "Política interna", "Canal de ética"]],
+    ["description", "Requisito e plano", "textarea", "Base normativa, evidências e ação necessária"],
+  ],
+  communication: [
+    ["title", "Título do comunicado", "text", "Ex.: Atualização do processo de implantação"],
+    ["category", "Canal", "select", ["Portal", "E-mail", "WhatsApp", "Mural", "Campanha"]],
+    ["description", "Mensagem", "textarea", "Conteúdo que será comunicado à rede"],
+  ],
+  training: [
+    ["title", "Treinamento ou turma", "text", "Ex.: Integração da equipe"],
+    ["category", "Formato", "select", ["Presencial", "Online", "Trilha", "Avaliação", "Certificação"]],
+    ["description", "Conteúdo e público", "textarea", "Objetivos, participantes e critérios de conclusão"],
+  ],
+  support: [
+    ["title", "Assunto do chamado", "text", "Descreva resumidamente a solicitação"],
+    ["category", "Departamento", "select", ["Implantação", "Credenciamento", "Financeiro", "Pessoas", "Tecnologia", "Operação"]],
+    ["description", "Descrição do chamado", "textarea", "Contexto, impacto e ajuda necessária"],
+  ],
+  indicators: [
+    ["title", "Nome do KPI", "text", "Ex.: Taxa de prontidão"],
+    ["objective", "Objetivo", "text", "O que este KPI mede?"],
+    ["formula", "Fórmula", "text", "Numerador / denominador × 100"],
+    ["source", "Fonte", "text", "Módulo ou integração de origem"],
+  ],
+};
+
+function approvedWizardSchema(moduleCode) {
+  return approvedWizardSchemas[moduleCode] || [
+    ["title", "Título do registro", "text", "Descreva a demanda ou atividade"],
+    ["category", "Categoria", "text", "Área ou classificação"],
+    ["description", "Descrição", "textarea", "Contexto, escopo e resultado esperado"],
+  ];
+}
+
+function approvedWizardField([name, label, type, detail], draft, extraClass = "") {
+  const value = draft[name] || "";
+  if (type === "select") return `<label class="${extraClass}"><span>${escapeHtml(label)}*</span><select name="${escapeHtml(name)}" required><option value="" disabled${value ? "" : " selected"}>Selecione</option>${detail.map((option) => `<option${value === option ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select></label>`;
+  if (type === "textarea") return `<label class="span-2 ${extraClass}"><span>${escapeHtml(label)}*</span><textarea name="${escapeHtml(name)}" rows="5" required placeholder="${escapeHtml(detail)}">${escapeHtml(value)}</textarea></label>`;
+  return `<label class="${extraClass}"><span>${escapeHtml(label)}*</span><input name="${escapeHtml(name)}" type="${escapeHtml(type)}" required value="${escapeHtml(value)}" placeholder="${escapeHtml(detail)}" /></label>`;
+}
+
+function renderApprovedWizard(modal) {
+  const isUnit = modal.type === "new-unit";
+  const moduleCode = modal.moduleCode || "operation";
+  const isExecutive = moduleCode === "executive";
+  const isIndicator = moduleCode === "indicators";
+  const isCenteredWizard = isExecutive || isIndicator;
+  const blueprint = approvedModuleBlueprints[moduleCode] || (moduleCode === "implantation" ? { title: "Jornada de implantação", action: "Iniciar jornada" } : moduleCode === "indicators" ? { title: "Indicadores", action: "Novo indicador" } : { title: "Unidades", action: "Novo registro" });
+  const step = Number(modal.step || 1);
+  const draft = modal.draft || {};
+  const units = roadmapUnits();
+  const unit = units.find((item) => item.id === (draft.unitId || state.selectedUnitId)) || units[0];
+  let fields = "";
+  if (step === 1 && isUnit) {
+    fields = [
+      ["legalName", "Razão social", "text", "Razão social da unidade"],
+      ["unitName", "Nome da unidade", "text", "Cidade ou nome fantasia"],
+      ["cnpj", "CNPJ", "text", "00.000.000/0000-00"],
+      ["address", "Endereço completo", "text", "Logradouro, número, cidade e UF"],
+    ].map((field) => approvedWizardField(field, draft)).join("");
+  } else if (step === 1 && isExecutive) {
+    fields = `${approvedWizardField(["title", "Decisão", "text", "Decisão ou encaminhamento"], draft)}${approvedWizardField(["category", "Eixo estratégico", "select", ["Expansão", "Operação", "Financeiro", "Pessoas", "Governança"]], draft)}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>${approvedWizardField(["owner", "Responsável", "text", "Nome do responsável"], draft)}`;
+  } else if (step === 1 && isIndicator) {
+    fields = approvedWizardSchema("indicators").map((field) => approvedWizardField(field, draft)).join("");
+  } else if (step === 1) {
+    fields = `${approvedWizardSchema(moduleCode).map((field) => approvedWizardField(field, draft)).join("")}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>`;
+  } else if (step === 2 && isUnit) {
+    fields = `${approvedWizardField(["franchisee", "Franqueado", "text", "Nome do titular"], draft)}${approvedWizardField(["owner", "Responsável corporativo", "text", "Responsável pela implantação"], draft)}${approvedWizardField(["openingDate", "Inauguração prevista", "date", ""], draft)}<div class="approved-required-docs"><span>Documentos mínimos*</span><button type="button"><i data-lucide="files"></i><strong>Contrato social, CNPJ e contrato de franquia</strong><small>Os arquivos poderão ser anexados na pasta digital da unidade.</small></button></div>`;
+  } else if (step === 2 && isExecutive) {
+    const selectedUnit = unit || units[0];
+    const definition = executiveAreaDefinition(draft.category || "Expansão");
+    const statusValues = [...new Set(definition.workflow.flatMap(([, statuses]) => statuses).filter((status) => status !== "Rascunho"))];
+    fields = `${approvedWizardField(["deadline", "Prazo da decisão", "date", ""], draft)}<label><span>Status*</span><select name="status" required>${statusValues.map((option) => `<option${(draft.status || statusValues[0]) === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label><span>Prioridade*</span><select name="priority" required>${["Baixa", "Média", "Alta", "Crítica"].map((option) => `<option${(draft.priority || "Média") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label class="span-2"><span>Contexto e próximos passos*</span><textarea name="notes" rows="6" required placeholder="Registre o contexto, o encaminhamento e o resultado esperado">${escapeHtml(draft.notes || "")}</textarea></label>${selectedUnit ? `<div class="span-2 approved-attachment-field"><span>Anexo ou evidência</span>${attachmentControl(draft.attachment || "", selectedUnit, "department:executive:decisao", 'name="attachment"', departmentModuleCode("executive"))}</div>` : ""}`;
+  } else if (step === 2 && isIndicator) {
+    fields = `${approvedWizardField(["category", "Categoria", "select", ["Implantação", "Credenciamento", "Operação", "Financeiro", "Pessoas", "Qualidade"]], draft)}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>${approvedWizardField(["owner", "Responsável", "text", "Nome ou área responsável"], draft)}${approvedWizardField(["frequency", "Periodicidade", "select", ["Diária", "Semanal", "Mensal", "Trimestral"]], draft)}${approvedWizardField(["value", "Resultado inicial", "number", "0"], draft)}${approvedWizardField(["meta", "Meta", "number", "100"], draft)}<label><span>Status*</span><select name="status" required>${["Pendente", "Em Andamento", "Concluído"].map((option) => `<option${(draft.status || "Pendente") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label>`;
+  } else if (step === 2) {
+    const selectedUnit = unit || units[0];
+    fields = `${approvedWizardField(["owner", "Responsável", "text", "Nome ou equipe"], draft)}${approvedWizardField(["deadline", "Prazo", "date", ""], draft)}<label><span>Status*</span><select name="status" required>${["Pendente", "Em Andamento", "Em análise", "Concluído"].map((option) => `<option${(draft.status || "Pendente") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label><span>Prioridade*</span><select name="priority" required>${["Baixa", "Média", "Alta", "Crítica"].map((option) => `<option${(draft.priority || "Média") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label class="span-2"><span>Observações</span><textarea name="notes" rows="5" placeholder="Contexto, decisões e próximos passos">${escapeHtml(draft.notes || "")}</textarea></label>${selectedUnit ? `<div class="span-2 approved-attachment-field"><span>Anexo ou evidência</span>${attachmentControl(draft.attachment || "", selectedUnit, `department:${moduleCode}:registro`, 'name="attachment"', departmentModuleCode(moduleCode))}</div>` : ""}`;
+  } else {
+    fields = `<section class="approved-review"><span><i data-lucide="clipboard-check"></i></span><div><h3>Revise antes de enviar</h3><p>O sistema registrará autor, data, contexto, responsável e prazo. Após o envio, o workflow de ${escapeHtml(isUnit ? "Unidades" : blueprint.title)} será iniciado.</p></div><dl><div><dt>Escopo</dt><dd>${escapeHtml(isUnit ? draft.unitName || "Nova unidade" : unit?.city || "Toda a rede")}</dd></div><div><dt>Status inicial</dt><dd>${escapeHtml(isUnit ? "Planejada" : draft.status || "Pendente")}</dd></div><div><dt>Auditoria</dt><dd>Registro completo</dd></div></dl><label><input name="confirmed" type="checkbox" required />Confirmo que os dados e anexos foram revisados.</label></section>`;
+  }
+  const title = isUnit ? "Nova unidade" : blueprint.action || "Novo registro";
+  return `<div class="approved-modal-backdrop${isCenteredWizard ? " executive-decision-backdrop" : " reference-drawer-backdrop"}"><section class="approved-modal${isCenteredWizard ? " approved-executive-wizard" : " approved-drawer"} approved-wizard" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>NOVO REGISTRO · ${escapeHtml((isUnit ? "UNIDADES" : blueprint.title).toUpperCase())}</span><h2 id="approved-modal-title">${escapeHtml(title)}</h2><p>O registro será salvo no módulo de origem e refletido nos painéis.</p></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><div class="approved-wizard-steps">${["Dados", "Responsabilidade", "Revisão"].map((label, index) => `<div class="${step > index + 1 ? "done" : step === index + 1 ? "active" : ""}"><span>${step > index + 1 ? '<i data-lucide="check"></i>' : index + 1}</span><b>${label}</b></div>`).join("")}</div><form data-approved-wizard-form data-module-code="${escapeHtml(moduleCode)}" data-wizard-type="${escapeHtml(modal.type)}"><div class="approved-form-grid">${fields}</div><footer>${step === 1 ? '<button class="approved-secondary" data-approved-modal-close type="button">Cancelar</button><button class="approved-secondary" data-approved-wizard-draft type="button">Salvar rascunho</button>' : '<button class="approved-secondary" data-approved-wizard-move="-1" type="button">Voltar</button>'}${step < 3 ? '<button class="approved-primary" data-approved-wizard-move="1" type="button">Continuar<i data-lucide="arrow-right"></i></button>' : '<button class="approved-primary" type="submit">Enviar e iniciar workflow<i data-lucide="arrow-right"></i></button>'}</footer></form></section></div>`;
+}
+
+function renderApprovedUnitDrawer(modal) {
+  const unit = roadmapUnits().find((item) => item.id === modal.unitId);
+  if (!unit) return "";
+  const tabs = ["Resumo", "Jornada", "Credenciamento", "Documentos", "Treinamentos", "Atas", "Pendências", "Histórico"];
+  const active = tabs.includes(state.approvedUnitTab) ? state.approvedUnitTab : "Resumo";
+  const progress = unitProgress(unit);
+  const stats = unitStats(unit);
+  const records = allOperationalRecords().filter((record) => record.unitId === unit.id && !record.hidden);
+  const tasks = unit.tasks || [];
+  let body = "";
+  if (active === "Resumo") {
+    const next = tasks.find((task) => getStatus(task) !== "Concluído");
+    body = `<div class="approved-unit-summary"><div class="approved-summary-status">${statusBadge(unitStatus(unit).label)}<strong>${progress.percent}% · ${stats.openPending} pendência(s)</strong></div><div class="approved-summary-progress"><span>Implantação da unidade</span><i><b style="width:${progress.percent}%"></b></i><strong>${progress.percent}%</strong></div><dl><div><dt>Unidade / escopo</dt><dd>${escapeHtml(unit.city)}${unit.state ? `/${escapeHtml(unit.state)}` : ""}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(unit.owner || "Implantação")}</dd></div><div><dt>Prazo</dt><dd>${formatDate(unit.openingDate)}</dd></div><div><dt>Prioridade</dt><dd>${escapeHtml(riskLevel(unit).label)}</dd></div></dl><section><h3>Próximas ações</h3><button data-approved-create="documentation" type="button"><i data-lucide="file-check-2"></i><span><strong>Validar documentos e evidências</strong><small>Revisar os arquivos pendentes da unidade.</small></span><i data-lucide="chevron-right"></i></button><button data-approved-create="operation" type="button"><i data-lucide="clipboard-pen-line"></i><span><strong>Registrar parecer</strong><small>Documentar decisão e próximos passos.</small></span><i data-lucide="chevron-right"></i></button><button data-approved-create="communication" type="button"><i data-lucide="send"></i><span><strong>Comunicar envolvidos</strong><small>Enviar atualização aos responsáveis.</small></span><i data-lucide="chevron-right"></i></button></section>${next ? `<div class="approved-next-stage"><span>Próximo marco</span><strong>${escapeHtml(next.process)}</strong><small>${escapeHtml(next.phase || "Implantação")}</small></div>` : ""}</div>`;
+  } else if (active === "Jornada") {
+    body = `<div class="approved-drawer-list">${tasks.slice(0, 12).map((task) => `<button data-open-unit-workspace="${escapeHtml(unit.id)}" type="button"><span><strong>${escapeHtml(task.process)}</strong><small>${escapeHtml(task.phase || "Implantação")} · ${formatDate(task.deadline)}</small></span>${statusBadge(getStatus(task))}<i data-lucide="chevron-right"></i></button>`).join("") || empty("Nenhuma etapa cadastrada.")}</div>`;
+  } else {
+    const term = { Credenciamento: "accredit", Documentos: "document", Treinamentos: "training", Atas: "meeting", Pendências: "pendenc" }[active];
+    const scoped = term ? records.filter((record) => String(record.recordType).toLowerCase().includes(term)) : records;
+    body = `<div class="approved-drawer-list">${scoped.slice(0, 12).map((record) => `<button data-approved-edit="${escapeHtml(active === "Credenciamento" ? "credentialing" : active === "Treinamentos" ? "training" : active === "Documentos" ? "documentation" : "operation")}" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}" type="button"><span><strong>${escapeHtml(record.title || record.name || active)}</strong><small>${escapeHtml(record.owner || "Equipe responsável")} · ${formatDate(record.deadline)}</small></span>${statusBadge(record.status || "Pendente")}<i data-lucide="chevron-right"></i></button>`).join("") || `<div class="approved-drawer-empty"><i data-lucide="inbox"></i><strong>Nenhum registro em ${escapeHtml(active.toLowerCase())}</strong><span>Adicione um registro para iniciar o acompanhamento.</span></div>`}</div>`;
+  }
+  return `<div class="approved-modal-backdrop reference-drawer-backdrop"><section class="approved-modal approved-drawer approved-unit-drawer" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>UNIDADE</span><h2 id="approved-modal-title">${escapeHtml(unit.city)}${unit.state ? `/${escapeHtml(unit.state)}` : ""}</h2><p>${escapeHtml(unit.franchisee || unit.name || "Franquia 33Doctor")}${unit.cnpj ? ` · CNPJ ${escapeHtml(unit.cnpj)}` : ""}</p></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><nav class="approved-drawer-tabs" aria-label="Detalhes da unidade">${tabs.map((tab) => `<button class="${active === tab ? "active" : ""}" data-unit-detail-tab="${escapeHtml(tab)}" type="button">${escapeHtml(tab)}</button>`).join("")}</nav><main>${body}</main><footer><button class="approved-secondary" data-approved-create="operation" type="button"><i data-lucide="message-square-plus"></i>Adicionar comentário</button><button class="approved-primary" data-open-unit-workspace="${escapeHtml(unit.id)}" type="button">Abrir pasta digital<i data-lucide="arrow-right"></i></button></footer></section></div>`;
+}
+
+function renderApprovedModal() {
+  if (!state.approvedModal) return "";
+  const modal = state.approvedModal;
+  if (modal.type === "unit") return renderApprovedUnitDrawer(modal);
+  if (modal.type === "new-unit" || (modal.type === "record" && !modal.record)) return renderApprovedWizard(modal);
+  if (modal.type === "folder") {
+    const parents = state.documentFolders || [];
+    return `<div class="approved-modal-backdrop"><section class="approved-modal" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>Biblioteca de documentos</span><h2 id="approved-modal-title">Criar pasta ou subpasta</h2></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><form data-document-folder-form><label><span>Nome da pasta</span><input name="name" required placeholder="Ex.: POPs operacionais" /></label><label><span>Área</span><input name="area" required placeholder="Ex.: Operações" /></label><label><span>Pasta superior</span><select name="parentId"><option value="">Raiz da biblioteca</option>${parents.map((folder)=>`<option value="${escapeHtml(folder.id)}"${modal.parentId===folder.id?" selected":""}>${escapeHtml(folder.name)}</option>`).join("")}</select></label><footer><button class="approved-secondary" data-approved-modal-close type="button">Cancelar</button><button class="approved-primary" type="submit"><i data-lucide="folder-plus"></i>Criar pasta</button></footer></form></section></div>`;
+  }
+  const moduleCode = modal.moduleCode;
+  const blueprint = approvedModuleBlueprints[moduleCode] || { title: moduleCode === "indicators" ? "Indicadores" : moduleCode === "implantation" ? "Implantação" : moduleCode === "franchises" ? "Unidades" : "Painel executivo", action: "Novo registro" };
+  const units = roadmapUnits();
+  const record = modal.record || null;
+  const unit = units.find((item)=>item.id === (record?.unitId || state.selectedUnitId)) || units[0];
+  if (!unit) return "";
+  const active = state.approvedTabs[moduleCode] || blueprint.tabs?.[0] || blueprint.title;
+  const recordType = record?.recordType || `department:${moduleCode}:${slug(active)}`;
+  const options = (values, current) => values.map((value) => `<option${value === current ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
+  return `<div class="approved-modal-backdrop reference-drawer-backdrop"><section class="approved-modal approved-drawer" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>${escapeHtml(blueprint.title)}</span><h2 id="approved-modal-title">Editar registro</h2><p>Atualize os campos, observações e evidências deste registro.</p></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><form data-approved-record-form data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(recordType)}" data-record-id="${escapeHtml(record?.recordId || "")}"><div class="approved-form-grid"><label class="span-2"><span>Título do registro</span><input name="title" required value="${escapeHtml(record?.title || "")}" placeholder="Descreva a demanda ou atividade" /></label><label><span>Unidade</span><select name="unitId" data-approved-modal-unit>${units.map((item)=>`<option value="${escapeHtml(item.id)}"${item.id===unit.id?" selected":""}>${escapeHtml(item.city)} ${escapeHtml(item.state||"")}</option>`).join("")}</select></label><label><span>Responsável</span><input name="owner" value="${escapeHtml(record?.owner || record?.responsible || "")}" placeholder="Nome ou equipe" /></label><label><span>Prazo</span><input name="deadline" type="date" value="${escapeHtml(record?.deadline || record?.dueDate || "")}" /></label><label><span>Status</span><select name="status">${options(["Pendente","Em Andamento","Em análise","Concluído","Cancelado"], record?.status || "Pendente")}</select></label><label><span>Prioridade</span><select name="priority">${options(["Baixa","Média","Alta","Crítica"], record?.priority || "Média")}</select></label><label><span>Categoria</span><input name="category" value="${escapeHtml(record?.category || active)}" /></label><label class="span-2"><span>Observações</span><textarea name="notes" rows="5" placeholder="Contexto, decisões e próximos passos">${escapeHtml(record?.notes || "")}</textarea></label><div class="span-2 approved-attachment-field"><span>Anexo</span>${attachmentControl(record?.attachment || "", unit, recordType, 'name="attachment"', departmentModuleCode(moduleCode))}</div></div><footer><button class="approved-secondary" data-approved-modal-close type="button">Cancelar</button><button class="approved-primary" type="submit"><i data-lucide="save"></i>Salvar alterações</button></footer></form></section></div>`;
+}
+
+function approvedWizardValues(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  delete values.confirmed;
+  return values;
+}
+
+function moveApprovedWizard(button) {
+  const form = button.closest("form");
+  if (!form || !state.approvedModal) return;
+  const direction = Number(button.dataset.approvedWizardMove || 0);
+  if (direction > 0 && !form.reportValidity()) return;
+  state.approvedModal.draft = { ...(state.approvedModal.draft || {}), ...approvedWizardValues(form) };
+  state.approvedModal.step = Math.max(1, Math.min(3, Number(state.approvedModal.step || 1) + direction));
+  render();
+}
+
+function saveApprovedWizardDraft(button) {
+  const form = button.closest("form");
+  if (!form || !state.approvedModal) return;
+  state.approvedModal.draft = { ...(state.approvedModal.draft || {}), ...approvedWizardValues(form) };
+  const drafts = readStorage("approvedWizardDrafts", []);
+  drafts.unshift({
+    id: `wizard-${Date.now()}`,
+    type: state.approvedModal.type,
+    moduleCode: state.approvedModal.moduleCode,
+    values: state.approvedModal.draft,
+    savedAt: new Date().toISOString(),
+  });
+  writeStorage("approvedWizardDrafts", drafts.slice(0, 30));
+  showOperationToast("Rascunho salvo. Você pode continuar este preenchimento agora.");
+}
+
+async function finishApprovedWizard(form) {
+  if (!form.reportValidity() || !state.approvedModal) return;
+  state.approvedModal.draft = { ...(state.approvedModal.draft || {}), ...approvedWizardValues(form) };
+  const modal = state.approvedModal;
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = "Enviando...";
+  try {
+    if (modal.type === "new-unit") await createUnitFromApprovedWizard(modal.draft);
+    else await createRecordFromApprovedWizard(modal.moduleCode, modal.draft);
+    state.approvedModal = null;
+    showOperationToast("Registro criado e workflow iniciado com sucesso.");
+    render();
+  } catch (error) {
+    submit.disabled = false;
+    submit.textContent = "Enviar e iniciar workflow";
+    showOperationToast(error.message || "Não foi possível concluir o cadastro.", "error");
+  }
+}
+
+async function createRecordFromApprovedWizard(moduleCode, values) {
+  const unitId = values.unitId === "network" ? (roadmapUnits()[0]?.id || "") : values.unitId;
+  if (!unitId) throw new Error("Selecione uma unidade para o registro.");
+  const active = state.approvedTabs[moduleCode] || approvedModuleBlueprints[moduleCode]?.tabs?.[0] || "Registro";
+  const recordType = `department:${moduleCode}:${slug(values.category || active)}`;
+  const recordId = `record-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const payload = {
+    ...values,
+    title: values.title || values.name || approvedModuleBlueprints[moduleCode]?.action || "Novo registro",
+    status: values.status || "Pendente",
+    priority: values.priority || "Média",
+    createdAt: new Date().toISOString(),
+  };
+  delete payload.unitId;
+  await persistUnitOperationalRecord(unitId, recordType, recordId, payload);
+  setLocalOperationalRecord({ unitId, recordType, recordId, values: payload });
+  writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+}
+
+async function createUnitFromApprovedWizard(values) {
+  const stateMatch = String(values.address || "").toUpperCase().match(/(?:\/|,|\s)([A-Z]{2})(?:\s|$)/);
+  const stateCode = stateMatch?.[1] || "";
+  const city = String(values.unitName || "Nova unidade").replace(/\s*\/\s*[A-Za-z]{2}\s*$/, "").trim();
+  if (supabaseEnabled) {
+    if (!state.auth?.token) throw new Error("Sua sessão expirou. Entre novamente para adicionar a unidade.");
+    const result = await supabaseRpc("create_unit_from_template", {
+      p_token: state.auth.token,
+      p_city: city,
+      p_state: stateCode,
+      p_franchisee: values.franchisee || values.legalName || "",
+      p_opening_date: values.openingDate || null,
+      p_owner_name: values.owner || "Implantação",
+      p_priority: "Média",
+    });
+    await loadSupabaseData();
+    const createdUnitId = result?.unitId || result?.unit_id;
+    if (createdUnitId) {
+      await persistUnitOperationalRecord(createdUnitId, "department:franchises:cadastro", `record-${Date.now()}`, {
+        title: values.legalName || values.unitName,
+        cnpj: values.cnpj || "",
+        address: values.address || "",
+        status: "Planejada",
+        owner: values.owner || "Implantação",
+        notes: "Cadastro realizado pelo workflow de nova unidade.",
+      });
+    }
+    return;
+  }
+  const id = `draft-${slug(`${city}-${stateCode}-${Date.now()}`)}`;
+  const draft = {
+    id,
+    name: values.legalName || `${city.toUpperCase()} ${stateCode}`.trim(),
+    city,
+    state: stateCode,
+    cnpj: values.cnpj || "",
+    address: values.address || "",
+    franchisee: values.franchisee || values.legalName || "",
+    openingDate: values.openingDate || "",
+    owner: values.owner || "Implantação",
+    priority: "Média",
+    sourceFile: "Cadastro realizado no sistema",
+    tasks: data.modelTasks.map((task, index) => ({
+      id: `${id}-task-${index + 1}`,
+      item: task.item,
+      phase: task.phase,
+      process: task.process,
+      status: "Pendente",
+      deadline: "",
+      actualDate: "",
+      notes: "",
+    })),
+    purchases: data.purchaseItems.map((item, index) => ({ id: `${id}-purchase-${index + 1}`, item, status: "Pendente", notes: "" })),
+  };
+  state.drafts = [draft, ...state.drafts];
+  writeStorage("franchiseDrafts", state.drafts);
+}
+
+async function saveApprovedRecord(form) {
+  if (!form.reportValidity()) return;
+  const button = form.querySelector('button[type="submit"]');
+  const values = Object.fromEntries(new FormData(form).entries());
+  const unitId = values.unitId;
+  delete values.unitId;
+  const recordId = form.dataset.recordId || `record-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  try {
+    await persistUnitOperationalRecord(unitId, form.dataset.recordType, recordId, values);
+    setLocalOperationalRecord({ unitId, recordType: form.dataset.recordType, recordId, values });
+    writeStorage("franchiseOperationalOverrides", state.operationalOverrides);
+    state.approvedModal = null;
+    showOperationToast("Registro salvo com sucesso.");
+    render();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Salvar registro";
+    showOperationToast(error.message || "Não foi possível salvar o registro.", "error");
+  }
+}
+
+function saveDocumentFolder(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.documentFolders.push({ id: `folder-${Date.now()}`, name: values.name.trim(), area: values.area.trim(), parentId: values.parentId || "" });
+  writeStorage("documentFolders", state.documentFolders);
+  state.approvedModal = null;
+  showOperationToast("Pasta criada com sucesso.");
+  render();
+}
+
+function handleApprovedQuickAction(button) {
+  const moduleCode = button.dataset.approvedQuick;
+  const index = Number(button.dataset.approvedQuickIndex || 0);
+  if (moduleCode === "executive") {
+    const activeExecutiveArea = state.approvedTabs.executive;
+    state.approvedModal = {
+      type: "record",
+      moduleCode: "executive",
+      step: 1,
+      draft: { category: activeExecutiveArea && activeExecutiveArea !== "Visão da rede" ? activeExecutiveArea : "Expansão" },
+    };
+    render();
+    return;
+  }
+  if (moduleCode === "settings") {
+    state.approvedTabs.settings = index === 0 ? "Usuários" : "Perfis e permissões";
+    state.adminTab = index === 0 ? "users" : "overview";
+    writeStorage("approvedModuleTabs", state.approvedTabs);
+    render();
+    return;
+  }
+  if (moduleCode === "documentation" && index === 1) {
+    state.approvedModal = { type: "folder", moduleCode: "documentation", parentId: "" };
+    render();
+    return;
+  }
+  if (moduleCode === "franchises") {
+    if (index === 0) {
+      state.view = "communication";
+      activateNav("communication");
+      render();
+      return;
+    }
+    const actionModules = ["communication", "documentation", "operation", "training"];
+    state.approvedModal = { type: "record", moduleCode: actionModules[index] || "operation" };
+    render();
+    return;
+  }
+  state.approvedModal = { type: "record", moduleCode };
+  render();
+}
+
+function exportApprovedView(moduleCode) {
+  const context = approvedContext(moduleCode);
+  let rows;
+  if (moduleCode === "indicators") rows = buildApprovedIndicators(context).map((item)=>({ indicador:item.name,categoria:item.category,resultado:`${item.value}%`,meta:`${item.meta}%`,responsavel:item.owner }));
+  else if (["executive","franchises"].includes(moduleCode)) rows = context.units.map((unit)=>({ unidade:unit.city,estado:unit.state,franqueado:unit.franchisee,progresso:`${unitProgress(unit).percent}%`,status:unitStatus(unit).label,risco:riskLevel(unit).label,responsavel:unit.owner||"Implantação" }));
+  else if (moduleCode === "implantation") rows = context.tasks.map(({unit,task})=>({ unidade:unit.city,etapa:task.process,fase:task.phase,status:getStatus(task),prazo:task.deadline,responsavel:task.owner||unit.owner||"Implantação",observacoes:task.notes||"" }));
+  else rows = context.records.length ? context.records.map((record)=>({ titulo:record.title||record.name,unidade:unitForId(record.unitId)?.city||"",status:record.status,responsavel:record.owner||"",prazo:record.deadline||"",observacoes:record.notes||"" })) : context.units.map((unit)=>({ unidade:unit.city,status:unitStatus(unit).label,progresso:`${unitProgress(unit).percent}%`,responsavel:unit.owner||"Implantação" }));
+  if (!rows.length) {
+    showOperationToast("Não há dados para exportar neste filtro.", "error");
+    return;
+  }
+  downloadCsv(`${slug(moduleCode)}-${new Date().toISOString().slice(0,10)}.csv`, rows);
+  showOperationToast("Relatório exportado com sucesso.");
 }
 
 init();
