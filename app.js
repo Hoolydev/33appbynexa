@@ -1232,6 +1232,7 @@ async function loadSupabaseData() {
     payload = await supabaseRpc("get_app_data", { p_token: state.auth.token });
   }
   data = normalizeLoadedData(payload);
+  reconcileRemoteStatusOverrides();
   hydrateUnitRecordsFromOperationalData(data.operationalRecords);
   const sessionRole = sessionFranchisorRole();
   state.accessContext = {
@@ -1280,6 +1281,24 @@ function normalizeLoadedData(payload) {
       ...(payload.summary || {}),
     },
   };
+}
+
+function reconcileRemoteStatusOverrides() {
+  const remoteItemIds = new Set(
+    data.units.flatMap((unit) => [
+      ...(unit.tasks || []).map((item) => item.id),
+      ...(unit.purchases || []).map((item) => item.id),
+    ]),
+  );
+  let changed = false;
+
+  for (const itemId of Object.keys(state.statusOverrides)) {
+    if (!remoteItemIds.has(itemId)) continue;
+    delete state.statusOverrides[itemId];
+    changed = true;
+  }
+
+  if (changed) writeStorage("franchiseStatusOverrides", state.statusOverrides);
 }
 
 const persistedUnitRecordTypes = new Set(["accreditations", "documents", "trainings", "meetings", "pendencies"]);
@@ -3570,7 +3589,7 @@ function roadmapUnits() {
 function unitProgress(unit) {
   const tasks = unit.tasks || [];
   const total = tasks.length || 1;
-  const done = tasks.filter((task) => getStatus(task) === "Concluído").length;
+  const done = tasks.filter((task) => isCompletedStatus(getStatus(task))).length;
   const inProgress = tasks.filter((task) => getStatus(task) === "Em Andamento").length;
   const pending = tasks.filter((task) => getStatus(task) === "Pendente").length;
   return {
@@ -3591,7 +3610,7 @@ function unitStats(unit) {
   const pendingItems = pendingItemsForUnit(unit);
   const overduePending = pendingItems.filter((item) => item.overdue).length;
   const approvedDocs = docs.filter((item) => item.status === "Aprovado").length;
-  const completedTrainings = trainings.filter((item) => item.status === "Concluído").length;
+  const completedTrainings = trainings.filter((item) => isCompletedStatus(item.status)).length;
   const closedAccreditation = accreditation.filter((item) => isAccreditationClosed(item.status)).length;
   return {
     progress,
@@ -3607,7 +3626,7 @@ function unitStats(unit) {
     approvedDocs,
     pendingDocs: docs.filter((item) => item.status !== "Aprovado").length,
     completedTrainings,
-    pendingTrainings: trainings.filter((item) => item.status !== "Concluído").length,
+    pendingTrainings: trainings.filter((item) => !isCompletedStatus(item.status)).length,
     closedAccreditation,
     pendingAccreditation: accreditation.filter((item) => !isAccreditationClosed(item.status)).length,
     openPending: pendingItems.length,
@@ -3787,7 +3806,7 @@ function alertsForUnit(unit, pendingItems, docs, trainings, accreditation) {
   if (high) alerts.push({ type: "Pendência crítica", message: `${high} pendência(s) de alta prioridade exigem ação.` });
   const pendingDocs = docs.filter((item) => item.status !== "Aprovado").length;
   if (pendingDocs) alerts.push({ type: "Documento", message: `${pendingDocs} documento(s) pendente(s) ou em análise.` });
-  const pendingTrainings = trainings.filter((item) => item.status !== "Concluído").length;
+  const pendingTrainings = trainings.filter((item) => !isCompletedStatus(item.status)).length;
   if (pendingTrainings) alerts.push({ type: "Treinamento", message: `${pendingTrainings} treinamento(s) ainda não concluído(s).` });
   const pendingCred = accreditation.filter((item) => !isAccreditationClosed(item.status)).length;
   if (pendingCred) alerts.push({ type: "Credenciamento", message: `${pendingCred} credenciamento(s) sem conclusão.` });
@@ -3805,8 +3824,16 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+function isCompletedStatus(status) {
+  return ["concluido", "concluida", "resolvido", "resolvida", "finalizado", "finalizada"]
+    .includes(normalizeText(status).trim());
+}
+
 function getStatus(item) {
-  return state.statusOverrides[item.id] || item.status || "Sem status";
+  const status = supabaseEnabled && state.auth?.token
+    ? item.status || "Sem status"
+    : state.statusOverrides[item.id] || item.status || "Sem status";
+  return isCompletedStatus(status) ? "Concluído" : status;
 }
 
 function operationalKey(unitId, recordType, recordId) {
@@ -3852,11 +3879,22 @@ function isPurchaseId(itemId) {
 }
 
 function setLocalItemStatus(itemId, status) {
+  let found = false;
   for (const unit of data.units) {
     const task = unit.tasks?.find((item) => item.id === itemId);
-    if (task) task.status = status;
+    if (task) {
+      task.status = status;
+      found = true;
+    }
     const purchase = unit.purchases?.find((item) => item.id === itemId);
-    if (purchase) purchase.status = status;
+    if (purchase) {
+      purchase.status = status;
+      found = true;
+    }
+  }
+  if (found && Object.prototype.hasOwnProperty.call(state.statusOverrides, itemId)) {
+    delete state.statusOverrides[itemId];
+    writeStorage("franchiseStatusOverrides", state.statusOverrides);
   }
 }
 
@@ -3937,7 +3975,7 @@ function renderFranchiseeHome() {
   const stats = unitStats(unit);
   const status = unitStatus(unit);
   const pending = stats.pendingItems
-    .filter((item) => item.status !== "Concluído")
+    .filter((item) => !isCompletedStatus(item.status))
     .sort((a, b) => Number(b.priority === "Alta") - Number(a.priority === "Alta") || Number(b.overdue) - Number(a.overdue));
   const nextTask = (unit.tasks || []).find((task) => getStatus(task) !== "Concluído");
   const phases = Object.entries(groupBy(unit.tasks || [], (task) => task.phase || "Implantação"));
@@ -7510,7 +7548,7 @@ function buildApprovedIndicators(context) {
   const custom = context.records.map((record) => {
     const value = Number(record.value ?? record.result ?? 0);
     const meta = Number(record.meta ?? record.target ?? 100);
-    const tone = record.status === "Concluído" || value >= meta ? "green" : record.priority === "Crítica" || record.status === "Crítico" ? "red" : "amber";
+    const tone = isCompletedStatus(record.status) || value >= meta ? "green" : record.priority === "Crítica" || record.status === "Crítico" ? "red" : "amber";
     return {
       name: record.title || record.name || "Indicador sem nome",
       subtitle: record.objective || record.description || "Indicador personalizado",
