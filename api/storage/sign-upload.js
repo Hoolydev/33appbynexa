@@ -17,7 +17,7 @@ module.exports = async function handler(request, response) {
   try {
     const body = requestBody(request);
     const client = getAdminClient();
-    await authorize(client, body, "upload");
+    const access = await authorize(client, body, "upload");
 
     const fileName = String(body.fileName || "").trim();
     const mimeType = String(body.mimeType || "application/octet-stream").toLowerCase();
@@ -26,7 +26,7 @@ module.exports = async function handler(request, response) {
 
     const tenantId = String(body.tenantId);
     const moduleCode = safeSegment(body.moduleCode, "business");
-    const unitId = safeSegment(body.unitId, "shared");
+    const unitId = safeSegment(access?.unitId, "shared");
     const category = safeSegment(body.category, "geral");
     const date = new Date().toISOString().slice(0, 10);
     const path = `${tenantId}/${moduleCode}/${unitId}/${category}/${date}/${crypto.randomUUID()}-${safeSegment(fileName, "arquivo")}`;
@@ -36,6 +36,7 @@ module.exports = async function handler(request, response) {
     json(response, 200, {
       bucket: BUCKET,
       path,
+      unitId: access?.unitId || null,
       token: data.token,
       signedUrl: data.signedUrl,
       expiresIn: 7200,

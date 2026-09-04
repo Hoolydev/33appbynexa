@@ -51,8 +51,23 @@ function requestBody(request, maxBodyBytes = 64 * 1024) {
 async function authorize(client, body, action) {
   const token = String(body.token || "").trim();
   const tenantId = String(body.tenantId || "").trim();
-  const unitId = body.unitId ? String(body.unitId).trim() : null;
+  const requestedUnitId = body.unitId ? String(body.unitId).trim() : null;
   if (!token || !tenantId) throw new PublicError("Sessão e franquia são obrigatórias.", 401);
+
+  let unitId = null;
+  if (requestedUnitId) {
+    const { data: units, error: unitsError } = await client
+      .from("units")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: true });
+    if (unitsError) throw unitsError;
+
+    const exactUnit = (units || []).find((unit) => String(unit.id) === requestedUnitId);
+    const tenantAliasUnit = requestedUnitId === tenantId ? (units || [])[0] : null;
+    unitId = exactUnit?.id || tenantAliasUnit?.id || null;
+    if (!unitId) throw new PublicError("A unidade informada não pertence a esta franquia.", 403);
+  }
 
   const { data, error } = await client.rpc("authorize_tenant_file", {
     p_token: token,
@@ -61,7 +76,7 @@ async function authorize(client, body, action) {
     p_action: action,
   });
   if (error) throw error;
-  return data;
+  return { ...(data || {}), tenantId, unitId };
 }
 
 function safeSegment(value, fallback) {

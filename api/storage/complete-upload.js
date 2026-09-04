@@ -24,7 +24,7 @@ module.exports = async function handler(request, response) {
     const sizeBytes = Number(body.sizeBytes);
     assertFile(fileName, mimeType, sizeBytes);
     const moduleCode = safeSegment(body.moduleCode, "business");
-    const unitId = safeSegment(body.unitId, "shared");
+    const unitId = safeSegment(access?.unitId, "shared");
     const category = safeSegment(body.category, "geral");
     const expectedPrefix = `${body.tenantId}/${moduleCode}/${unitId}/${category}/`;
     if (path.length > 500 || path.includes("..") || !path.startsWith(expectedPrefix)) {
@@ -57,7 +57,7 @@ module.exports = async function handler(request, response) {
 
     const { data, error } = await client.from("tenant_files").insert({
       tenant_id: body.tenantId,
-      unit_id: body.unitId || null,
+      unit_id: access?.unitId || null,
       module_code: moduleCode,
       category,
       original_name: fileName,
