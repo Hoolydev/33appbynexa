@@ -38,7 +38,7 @@ begin
   where u.id = v_user_id
     and u.active = true;
 
-  v_is_franchisor := v_platform_role in ('admin', 'gestao', 'user');
+  v_is_franchisor := coalesce(v_platform_role in ('admin', 'gestao', 'user'), false);
 
   select lower(tm.role)
   into v_tenant_role
