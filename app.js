@@ -1406,12 +1406,16 @@ async function authenticatedApiRequest(endpoint, options = {}, retry = true) {
   return payload;
 }
 
-async function storageRequest(endpoint, body) {
+async function storageRequest(endpoint, body, retry = true) {
   const response = await fetch(`/api/storage/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: state.auth?.token, ...body }),
   });
+  if (response.status === 401 && retry) {
+    await refreshAuthSession();
+    return storageRequest(endpoint, body, false);
+  }
   const text = await response.text();
   let payload = null;
   try {

@@ -96,10 +96,26 @@ function assertFile(fileName, mimeType, sizeBytes) {
   }
 }
 
+function storageErrorCategory(error, status) {
+  const message = String(error?.message || "").toLowerCase();
+  if (status === 401 || /sessão|session|token/.test(message)) return "authentication";
+  if (status === 403 || /acesso|perfil|permiss|franquia|unidade/.test(message)) return "authorization";
+  if (/bucket|storage|arquivo|file|mime|upload/.test(message)) return "storage";
+  if (/resend|e-mail|email/.test(message)) return "email_provider";
+  if (/fetch|network|timeout|timed out/.test(message)) return "upstream";
+  if (error?.code && /^[0-9A-Z]{5}$/.test(String(error.code))) return "database";
+  if (error?.expose || status < 500) return "validation";
+  return "internal";
+}
+
 function handleError(response, error, request) {
   const authenticationError = /sessão|acesso|perfil|franquia/i.test(error?.message || "");
   const status = error?.statusCode || (authenticationError ? 403 : 500);
-  if (request) securityLog("api_error", request, { status, code: error?.code || "internal_error" });
+  if (request) securityLog("api_error", request, {
+    status,
+    code: error?.code || (error?.expose ? "public_error" : "internal_error"),
+    category: storageErrorCategory(error, status),
+  });
   if (error?.expose) {
     json(response, status, { error: error.message });
     return;
