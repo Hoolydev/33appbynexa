@@ -3,15 +3,15 @@ const {
   requireUserCreationAccess,
   requireUserDeletionAccess,
   requireUserEditingAccess,
-} = require("../_lib/auth");
+} = require("./_lib/auth");
 const {
   PublicError,
   enforceRequest,
   json,
   parseBody,
   securityLog,
-} = require("../_lib/security");
-const moveCredentialing = require("../_lib/credentialing-move");
+} = require("./_lib/security");
+const moveCredentialing = require("./_lib/credentialing-move");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -364,11 +364,17 @@ async function deleteUser(request, response) {
 }
 
 module.exports = async function handler(request, response) {
-  const resource = String(request.query?.resource || request.url || "")
-    .split("?")[0]
-    .split("/")
-    .filter(Boolean)
-    .pop();
+  let resource = String(request.query?.resource || "").trim().toLowerCase();
+  if (!resource) {
+    try {
+      resource = new URL(request.url || "/api/admin", "http://localhost")
+        .searchParams.get("resource")
+        ?.trim()
+        .toLowerCase() || "";
+    } catch {
+      resource = "";
+    }
+  }
   if (resource === "credentialing") {
     await moveCredentialing(request, response);
     return;

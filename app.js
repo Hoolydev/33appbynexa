@@ -3517,7 +3517,7 @@ async function adminCreatePortalUser(button) {
   }
   button.disabled = true;
   try {
-    await authenticatedApiRequest("/api/admin/users", {
+    await authenticatedApiRequest("/api/admin?resource=users", {
       method: "POST",
       body: JSON.stringify({
         scope: values.scope,
@@ -3543,7 +3543,7 @@ async function adminDeletePortalUser(button) {
   if (!row || !window.confirm(`Excluir ${name} do sistema e do Supabase Authentication?`)) return;
   button.disabled = true;
   try {
-    await authenticatedApiRequest("/api/admin/users", {
+    await authenticatedApiRequest("/api/admin?resource=users", {
       method: "DELETE",
       body: JSON.stringify({ userId: row.dataset.userId }),
     });
@@ -3569,7 +3569,7 @@ async function adminUpdatePortalUser(button) {
   button.disabled = true;
   button.textContent = "Salvando...";
   try {
-    await authenticatedApiRequest("/api/admin/users", {
+    await authenticatedApiRequest("/api/admin?resource=users", {
       method: "PATCH",
       body: JSON.stringify({
         userId: row.dataset.userId,
@@ -7265,7 +7265,7 @@ async function moveCredentialPipelineCard(payload, nextStage) {
 
   try {
     if (supabaseEnabled && state.auth?.token) {
-      await authenticatedApiRequest("/api/admin/credentialing", {
+      await authenticatedApiRequest("/api/admin?resource=credentialing", {
         method: "POST",
         body: JSON.stringify({
           unitId: updated.unitId,
