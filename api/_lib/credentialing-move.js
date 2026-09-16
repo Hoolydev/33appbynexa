@@ -1,5 +1,5 @@
-const { requireAuthenticatedAppUser } = require("../_lib/auth");
-const { PublicError, enforceRequest, json, parseBody, securityLog } = require("../_lib/security");
+const { requireAuthenticatedAppUser } = require("./auth");
+const { PublicError, enforceRequest, json, parseBody, securityLog } = require("./security");
 
 const STAGE_STATUS = Object.freeze({
   "Prospecção": "Pendente",

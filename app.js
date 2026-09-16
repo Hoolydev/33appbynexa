@@ -7265,7 +7265,7 @@ async function moveCredentialPipelineCard(payload, nextStage) {
 
   try {
     if (supabaseEnabled && state.auth?.token) {
-      await authenticatedApiRequest("/api/credentialing/move", {
+      await authenticatedApiRequest("/api/admin/credentialing", {
         method: "POST",
         body: JSON.stringify({
           unitId: updated.unitId,

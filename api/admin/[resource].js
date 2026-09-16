@@ -11,6 +11,7 @@ const {
   parseBody,
   securityLog,
 } = require("../_lib/security");
+const moveCredentialing = require("../_lib/credentialing-move");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -363,6 +364,19 @@ async function deleteUser(request, response) {
 }
 
 module.exports = async function handler(request, response) {
+  const resource = String(request.query?.resource || request.url || "")
+    .split("?")[0]
+    .split("/")
+    .filter(Boolean)
+    .pop();
+  if (resource === "credentialing") {
+    await moveCredentialing(request, response);
+    return;
+  }
+  if (resource !== "users") {
+    json(response, 404, { error: "Recurso administrativo não encontrado." });
+    return;
+  }
   if (!enforceRequest(request, response, {
     methods: ["POST", "PATCH", "DELETE"],
     sameOrigin: true,
