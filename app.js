@@ -51,6 +51,8 @@ const state = {
     { id: "folder-operations", name: "Operações", parentId: "folder-corporate", area: "Operações" },
     { id: "folder-pops", name: "POPs e procedimentos", parentId: "folder-operations", area: "Operações" },
   ]),
+  activeDocumentFolderId: readStorage("activeDocumentFolderId", ""),
+  documentLibraryFilters: readStorage("documentLibraryFilters", { search: "", category: "all", access: "all" }),
   loading: false,
 };
 
@@ -654,6 +656,10 @@ app.addEventListener("click", (event) => {
         const activeIndicatorArea = state.approvedTabs.indicators;
         if (activeIndicatorArea && activeIndicatorArea !== "Visão geral") draft.category = activeIndicatorArea;
       }
+      if (requestedModule === "documentation") {
+        draft.folderId = state.activeDocumentFolderId || "root";
+        draft.accessScope = isFranchiseePortal() ? "unit" : "network";
+      }
       state.approvedModal = { type: "record", moduleCode: requestedModule, step: 1, draft };
     }
     render();
@@ -716,6 +722,13 @@ app.addEventListener("click", (event) => {
   const wizardDraft = event.target.closest("[data-approved-wizard-draft]");
   if (wizardDraft) saveApprovedWizardDraft(wizardDraft);
 
+  const openDocumentFolder = event.target.closest("[data-document-folder-open]");
+  if (openDocumentFolder) {
+    state.activeDocumentFolderId = openDocumentFolder.dataset.documentFolderOpen || "";
+    writeStorage("activeDocumentFolderId", state.activeDocumentFolderId);
+    render();
+  }
+
   const addFolder = event.target.closest("[data-add-document-folder]");
   if (addFolder) {
     state.approvedModal = { type: "folder", moduleCode: "documentation", parentId: addFolder.dataset.parentId || "" };
@@ -729,6 +742,13 @@ app.addEventListener("change", (event) => {
     const upload = modalUnit.closest("form")?.querySelector("[data-file-upload]");
     if (upload) upload.dataset.unitId = modalUnit.value;
   }
+  const documentFilter = event.target.closest("[data-document-library-filter]");
+  if (documentFilter) {
+    state.documentLibraryFilters[documentFilter.dataset.documentLibraryFilter] = documentFilter.value;
+    writeStorage("documentLibraryFilters", state.documentLibraryFilters);
+    render();
+    return;
+  }
   const filter = event.target.closest("[data-approved-filter]");
   if (!filter) return;
   const moduleCode = filter.dataset.approvedFilter;
@@ -739,6 +759,14 @@ app.addEventListener("change", (event) => {
 });
 
 app.addEventListener("input", (event) => {
+  const documentFilter = event.target.closest('[data-document-library-filter="search"]');
+  if (documentFilter) {
+    state.documentLibraryFilters.search = documentFilter.value;
+    writeStorage("documentLibraryFilters", state.documentLibraryFilters);
+    window.clearTimeout(documentFilter._documentTimer);
+    documentFilter._documentTimer = window.setTimeout(render, 120);
+    return;
+  }
   const filter = event.target.closest('[data-approved-filter][type="search"]');
   if (!filter) return;
   const moduleCode = filter.dataset.approvedFilter;
@@ -765,6 +793,7 @@ app.addEventListener("submit", async (event) => {
 });
 
 app.addEventListener("dragstart", (event) => {
+  if (!canMoveCredentialPipeline()) return;
   const card = event.target.closest("[data-credential-card]");
   if (!card || !event.dataTransfer) return;
   const payload = {
@@ -779,6 +808,7 @@ app.addEventListener("dragstart", (event) => {
 });
 
 app.addEventListener("dragover", (event) => {
+  if (!canMoveCredentialPipeline()) return;
   const stage = event.target.closest("[data-credential-stage]");
   if (!stage) return;
   event.preventDefault();
@@ -793,6 +823,7 @@ app.addEventListener("dragleave", (event) => {
 });
 
 app.addEventListener("drop", async (event) => {
+  if (!canMoveCredentialPipeline()) return;
   const stage = event.target.closest("[data-credential-stage]");
   if (!stage) return;
   event.preventDefault();
@@ -2631,6 +2662,10 @@ function isPlatformAdmin() {
 
 function isFranchiseePortal() {
   return !isPlatformAdmin() || state.portalMode === "franchisee";
+}
+
+function canMoveCredentialPipeline() {
+  return isPlatformAdmin() && !isFranchiseePortal();
 }
 
 function franchiseeViewAllowed(view) {
@@ -6891,7 +6926,10 @@ function approvedMetricValue(key, context) {
 }
 
 function approvedFilterOptions(label, context) {
-  if (/unidade/i.test(label)) return [["all", "Todas as unidades"], ...context.units.map((unit) => [unit.id, `${unit.city} ${unit.state || ""}`])];
+  if (/unidade/i.test(label)) {
+    const unitOptions = context.units.map((unit) => [unit.id, `${unit.city} ${unit.state || ""}`]);
+    return isFranchiseePortal() ? unitOptions : [["all", "Todas as unidades"], ...unitOptions];
+  }
   if (/status/i.test(label)) return [["all", "Todos os status"], ["Pendente", "Pendente"], ["Em Andamento", "Em andamento"], ["Concluído", "Concluído"], ["Em risco", "Em risco"]];
   if (/responsável/i.test(label)) return [["all", "Todos os responsáveis"], ...[...new Set(context.units.map((unit) => unit.owner || "Implantação"))].map((owner) => [owner, owner])];
   if (/período|competência/i.test(label)) return [["all", "Período atual"], ["30", "Últimos 30 dias"], ["90", "Últimos 90 dias"], ["year", "Ano atual"]];
@@ -7156,20 +7194,25 @@ function renderApprovedOperationalWorkspace(moduleCode, blueprint, context, unit
         return `<tr><td><strong>${escapeHtml(record.title || record.name || active)}</strong><small>${escapeHtml(record.category || active)}</small></td><td>${escapeHtml(record.owner || unitForId(record.unitId)?.city || "Rede 33Doctor")}</td><td>${formatDate(record.deadline || record.dueDate)}</td><td>${statusBadge(record.status || "Pendente")}</td><td>${escapeHtml(record.notes || "Sem observações")}</td><td>${action}</td></tr>`;
       }).join("")}</tbody></table></div>
     </section>
-    <aside class="approved-panel approved-workspace-side"><div class="approved-panel-head"><div><h2>Fluxo desta área</h2><p>O que acontece com cada registro.</p></div></div><ol class="approved-workflow-steps"><li><span>1</span><div><strong>Cadastrar</strong><small>Dados, unidade e contexto</small></div></li><li><span>2</span><div><strong>Atribuir</strong><small>Responsável, prazo e prioridade</small></div></li><li><span>3</span><div><strong>Acompanhar</strong><small>Status, observações e evidências</small></div></li><li><span>4</span><div><strong>Concluir</strong><small>Histórico e rastreabilidade</small></div></li></ol>${renderApprovedQuickPanel(moduleCode, blueprint)}</aside>
   </div>`;
 }
 
 function renderApprovedCredentialingPipeline(blueprint, context, units) {
   const stages = credentialPipelineStages();
+  const canMoveCards = canMoveCredentialPipeline();
   const records = units.flatMap((unit) => accreditationForUnit(unit).map((item) => ({ ...item, unit }))).slice(0, 30);
-  return `<div class="approved-credentialing-layout"><section class="approved-panel approved-span-3"><div class="approved-panel-head"><div><h2>Pipeline de credenciamento</h2><p>Prestadores organizados por etapa do processo.</p></div><span class="approved-drag-hint"><i data-lucide="move"></i>Arraste os cards entre etapas</span></div><div class="approved-pipeline">${stages.map((stage) => {
+  const pipelineMode = canMoveCards
+    ? '<span class="approved-drag-hint"><i data-lucide="move"></i>Arraste os cards entre etapas</span>'
+    : '<span class="approved-drag-hint readonly"><i data-lucide="lock"></i>Somente visualização</span>';
+  return `<div class="approved-credentialing-layout"><section class="approved-panel approved-span-3"><div class="approved-panel-head"><div><h2>Pipeline de credenciamento</h2><p>Prestadores organizados por etapa do processo.</p></div>${pipelineMode}</div><div class="approved-pipeline${canMoveCards ? "" : " is-readonly"}">${stages.map((stage) => {
     const cards = records.filter((item) => credentialPipelineStage(item) === stage);
     return `<section data-credential-stage="${escapeHtml(stage)}"><header><span>${escapeHtml(stage)}</span><b>${cards.length}</b></header><div>${cards.map((item) => {
       const unit = item.unit;
       const options = stages.map((option) => `<option value="${escapeHtml(option)}"${option === stage ? " selected" : ""}>${escapeHtml(option)}</option>`).join("");
-      return `<article draggable="true" aria-grabbed="false" data-credential-card data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}"><div class="approved-card-drag"><i data-lucide="grip-vertical"></i><span>Arrastar</span></div><strong>${escapeHtml(item.name || "Prestador credenciado")}</strong><small>${escapeHtml(unit.city || "Rede 33Doctor")} · ${escapeHtml(item.group || "Rede assistencial")}</small><dl><div><dt>Status</dt><dd>${statusBadge(item.status || credentialPipelineStatus(stage))}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(item.owner || "Credenciamento")}</dd></div><div><dt>Solicitação</dt><dd>${formatDate(item.requestDate)}</dd></div><div><dt>Aprovação</dt><dd>${formatDate(item.approvalDate)}</dd></div></dl><label class="credential-stage-control"><span>Mover para</span><select data-credential-stage-select data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}">${options}</select></label><button data-approved-preview="credentialing" data-unit-id="${escapeHtml(unit.id)}" data-title="${escapeHtml(item.name || "Prestador credenciado")}" data-status="${escapeHtml(item.status || credentialPipelineStatus(stage))}" data-owner="${escapeHtml(item.owner || "Credenciamento")}" data-category="${escapeHtml(stage)}" data-deadline="${escapeHtml(item.approvalDate || unit.openingDate || "")}" data-notes="${escapeHtml(item.notes || "")}" type="button">Abrir prontuário<i data-lucide="arrow-right"></i></button></article>`;
-    }).join("") || `<div class="approved-column-empty">Solte um processo nesta etapa</div>`}</div></section>`;
+      const dragControl = canMoveCards ? '<div class="approved-card-drag"><i data-lucide="grip-vertical"></i><span>Arrastar</span></div>' : "";
+      const stageControl = canMoveCards ? `<label class="credential-stage-control"><span>Mover para</span><select data-credential-stage-select data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}">${options}</select></label>` : "";
+      return `<article${canMoveCards ? ' draggable="true" aria-grabbed="false"' : ' aria-readonly="true"'} data-credential-card data-unit-id="${escapeHtml(unit.id)}" data-procedure-id="${escapeHtml(item.procedureId)}">${dragControl}<strong>${escapeHtml(item.name || "Prestador credenciado")}</strong><small>${escapeHtml(unit.city || "Rede 33Doctor")} · ${escapeHtml(item.group || "Rede assistencial")}</small><dl><div><dt>Status</dt><dd>${statusBadge(item.status || credentialPipelineStatus(stage))}</dd></div><div><dt>Responsável</dt><dd>${escapeHtml(item.owner || "Credenciamento")}</dd></div><div><dt>Solicitação</dt><dd>${formatDate(item.requestDate)}</dd></div><div><dt>Aprovação</dt><dd>${formatDate(item.approvalDate)}</dd></div></dl>${stageControl}<button data-approved-preview="credentialing" data-unit-id="${escapeHtml(unit.id)}" data-title="${escapeHtml(item.name || "Prestador credenciado")}" data-status="${escapeHtml(item.status || credentialPipelineStatus(stage))}" data-owner="${escapeHtml(item.owner || "Credenciamento")}" data-category="${escapeHtml(stage)}" data-deadline="${escapeHtml(item.approvalDate || unit.openingDate || "")}" data-notes="${escapeHtml(item.notes || "")}" type="button">Abrir prontuário<i data-lucide="arrow-right"></i></button></article>`;
+    }).join("") || `<div class="approved-column-empty">${canMoveCards ? "Solte um processo nesta etapa" : "Nenhum processo nesta etapa"}</div>`}</div></section>`;
   }).join("")}</div></section><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h2>Cobertura prioritária</h2><p>Procedimentos por unidade e avanço de cobertura.</p></div></div>${approvedBars(units)}</section><aside class="approved-panel"><div class="approved-panel-head"><div><h2>Requer atenção</h2><p>Prazos e documentos pendentes.</p></div></div>${approvedAttention(context, 5)}</aside></div>`;
 }
 
@@ -7198,6 +7241,11 @@ function credentialPipelineStatus(stage) {
 }
 
 async function moveCredentialPipelineCard(payload, nextStage) {
+  if (!canMoveCredentialPipeline()) {
+    showOperationToast("A movimentação da pipeline é exclusiva da franqueadora.", "error");
+    render();
+    return;
+  }
   if (!credentialPipelineStages().includes(nextStage)) return;
   const unit = unitForId(payload.unitId);
   const item = unit ? accreditationForUnit(unit).find((record) => record.procedureId === payload.procedureId) : null;
@@ -7217,16 +7265,13 @@ async function moveCredentialPipelineCard(payload, nextStage) {
 
   try {
     if (supabaseEnabled && state.auth?.token) {
-      await supabaseRpc("update_accreditation_record", {
-        p_token: state.auth.token,
-        p_unit_id: updated.unitId,
-        p_procedure_id: updated.procedureId,
-        p_status: updated.status,
-        p_request_date: updated.requestDate || null,
-        p_approval_date: updated.approvalDate || null,
-        p_owner_name: updated.owner || "Credenciamento",
-        p_attachments: updated.attachments || "Sem anexo",
-        p_notes: updated.notes || "",
+      await authenticatedApiRequest("/api/credentialing/move", {
+        method: "POST",
+        body: JSON.stringify({
+          unitId: updated.unitId,
+          procedureId: updated.procedureId,
+          stage: nextStage,
+        }),
       });
     }
     showOperationToast(`Credenciamento movido para ${nextStage}.`);
@@ -7701,15 +7746,58 @@ function renderJourneyMode(active,units,stages,context){
   return `<div class="approved-journey-board"><div><div class="approved-panel-head"><div><h2>Etapas por unidade</h2><p>Acompanhe avanço, risco, responsável e próximo marco.</p></div></div><div class="approved-journey-cards">${cards}</div></div><aside><div class="approved-gate-alert"><i data-lucide="triangle-alert"></i><span><h2>Exige liberação</h2><small>Há etapa aguardando aprovação.</small></span></div><h2>Agenda da semana</h2>${approvedTimelineSummary(units, "Agenda da semana")}</aside></div>`;
 }
 
+function documentAccessLabel(scope) {
+  return {
+    network: "Toda a rede",
+    franchisor: "Somente franqueadora",
+    unit: "Franquia vinculada",
+  }[scope] || "Toda a rede";
+}
+
+function canViewDocumentRecord(record) {
+  return !isFranchiseePortal() || (record.accessScope || "network") !== "franchisor";
+}
+
+function documentFolderTrail(folderId, folders) {
+  const trail = [];
+  let current = folders.find((folder) => folder.id === folderId);
+  while (current) {
+    trail.unshift(current);
+    current = folders.find((folder) => folder.id === current.parentId);
+  }
+  return trail;
+}
+
 function renderApprovedDocumentLibrary(context) {
   const folders = state.documentFolders || [];
   const rootFolders = folders.filter((folder) => !folder.parentId);
-  const documents = context.records.filter((record) => record.attachment || record.title).slice(0, 8);
+  const activeFolder = folders.find((folder) => folder.id === state.activeDocumentFolderId) || null;
+  const filters = state.documentLibraryFilters || { search: "", category: "all", access: "all" };
+  const availableDocuments = context.records.filter((record) => (record.attachment || record.title) && canViewDocumentRecord(record));
+  const categories = [...new Set(availableDocuments.map((record) => record.category).filter(Boolean))].sort();
+  const normalizedSearch = String(filters.search || "").trim().toLowerCase();
+  const documents = availableDocuments.filter((record) => {
+    const inFolder = !activeFolder || (record.folderId || "root") === activeFolder.id;
+    const matchesSearch = !normalizedSearch || `${record.title || ""} ${record.owner || ""} ${record.category || ""}`.toLowerCase().includes(normalizedSearch);
+    const matchesCategory = filters.category === "all" || record.category === filters.category;
+    const matchesAccess = filters.access === "all" || (record.accessScope || "network") === filters.access;
+    return inFolder && matchesSearch && matchesCategory && matchesAccess;
+  }).slice(0, 30);
+  const trail = documentFolderTrail(activeFolder?.id || "", folders);
   const renderFolder = (folder, level = 0) => {
     const children = folders.filter((item) => item.parentId === folder.id);
-    return `<div class="approved-folder" style="--folder-level:${level}"><button data-approved-tab="documentation" data-approved-tab-value="Biblioteca" type="button"><i data-lucide="folder"></i><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.area || "Biblioteca")}</small></span><em>${children.length}</em></button><button class="icon-button compact" data-add-document-folder data-parent-id="${escapeHtml(folder.id)}" type="button" title="Criar subpasta"><i data-lucide="folder-plus"></i></button></div>${children.map((child) => renderFolder(child, level + 1)).join("")}`;
+    const documentCount = availableDocuments.filter((record) => (record.folderId || "root") === folder.id).length;
+    return `<div class="approved-folder${activeFolder?.id === folder.id ? " active" : ""}" style="--folder-level:${level}"><button data-document-folder-open="${escapeHtml(folder.id)}" type="button"><i data-lucide="${activeFolder?.id === folder.id ? "folder-open" : "folder"}"></i><span><strong>${escapeHtml(folder.name)}</strong><small>${escapeHtml(folder.area || "Biblioteca")}</small></span><em>${documentCount}</em></button><button class="icon-button compact" data-add-document-folder data-parent-id="${escapeHtml(folder.id)}" type="button" title="Criar subpasta"><i data-lucide="folder-plus"></i></button></div>${children.map((child) => renderFolder(child, level + 1)).join("")}`;
   };
-  return `<div class="approved-library-grid"><section class="approved-panel"><div class="approved-panel-head"><div><h3>Bibliotecas</h3><p>Pastas e subpastas organizadas livremente por área.</p></div><button class="approved-secondary compact" data-add-document-folder type="button"><i data-lucide="folder-plus"></i>Nova pasta</button></div><div class="approved-folder-tree">${rootFolders.map((folder)=>renderFolder(folder)).join("") || empty("Nenhuma pasta criada.")}</div></section><section class="approved-panel approved-span-2"><div class="approved-panel-head"><div><h3>Documentos recentes</h3><p>Arquivos, evidências e documentos da rede.</p></div><button class="approved-primary compact" data-approved-create="documentation" type="button"><i data-lucide="upload"></i>Enviar documento</button></div><div class="approved-document-grid">${documents.map((record)=>`<article><span><i data-lucide="file-text"></i></span><div><strong>${escapeHtml(record.title || "Documento")}</strong><small>${escapeHtml(record.owner || "Rede 33Doctor")}</small></div><em>${escapeHtml(record.status || "Ativo")}</em></article>`).join("") || `<div class="approved-document-empty"><i data-lucide="files"></i><strong>Nenhum documento nesta biblioteca</strong><span>Envie o primeiro arquivo ou crie uma nova pasta.</span></div>`}</div></section></div>`;
+  const breadcrumb = `<nav class="approved-library-breadcrumb" aria-label="Caminho da biblioteca"><button data-document-folder-open="" type="button"><i data-lucide="library"></i>Biblioteca</button>${trail.map((folder) => `<i data-lucide="chevron-right"></i><button data-document-folder-open="${escapeHtml(folder.id)}" type="button">${escapeHtml(folder.name)}</button>`).join("")}</nav>`;
+  const documentCards = documents.map((record) => {
+    const persisted = Boolean(record.recordId && record.recordType && record.unitId);
+    const attributes = persisted
+      ? `data-approved-edit="documentation" data-unit-id="${escapeHtml(record.unitId)}" data-record-type="${escapeHtml(record.recordType)}" data-record-id="${escapeHtml(record.recordId)}"`
+      : `data-approved-preview="documentation" data-unit-id="${escapeHtml(record.unitId || "")}" data-title="${escapeHtml(record.title || "Documento")}" data-status="${escapeHtml(record.status || "Ativo")}" data-owner="${escapeHtml(record.owner || "Rede 33Doctor")}" data-category="${escapeHtml(record.category || "Documento")}"`;
+    return `<button ${attributes} type="button"><span><i data-lucide="file-text"></i></span><div><strong>${escapeHtml(record.title || "Documento")}</strong><small>${escapeHtml(record.category || "Documento")} · ${escapeHtml(record.owner || "Rede 33Doctor")}</small><small class="approved-document-access"><i data-lucide="users-round"></i>${escapeHtml(documentAccessLabel(record.accessScope || "network"))}</small></div><em>${escapeHtml(record.status || "Ativo")}</em></button>`;
+  }).join("");
+  return `<div class="approved-library-grid"><section class="approved-panel"><div class="approved-panel-head"><div><h3>Bibliotecas</h3><p>Pastas e subpastas organizadas por área.</p></div><button class="approved-secondary compact" data-add-document-folder type="button"><i data-lucide="folder-plus"></i>Nova pasta</button></div><div class="approved-folder-tree">${rootFolders.map((folder) => renderFolder(folder)).join("") || empty("Nenhuma pasta criada.")}</div></section><section class="approved-panel approved-span-2">${breadcrumb}<div class="approved-panel-head"><div><h3>${escapeHtml(activeFolder?.name || "Todos os documentos")}</h3><p>${activeFolder ? `Conteúdo da pasta ${escapeHtml(activeFolder.name)}.` : "Arquivos, evidências e documentos disponíveis para o seu perfil."}</p></div><button class="approved-primary compact" data-approved-create="documentation" type="button"><i data-lucide="upload"></i>Enviar documento</button></div><div class="approved-library-filters"><label><i data-lucide="search"></i><input data-document-library-filter="search" type="search" value="${escapeHtml(filters.search || "")}" placeholder="Buscar documento" /></label><select data-document-library-filter="category" aria-label="Filtrar por categoria"><option value="all">Todas as categorias</option>${categories.map((category) => `<option value="${escapeHtml(category)}"${filters.category === category ? " selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select data-document-library-filter="access" aria-label="Filtrar por acesso"><option value="all">Todos os acessos</option>${isFranchiseePortal() ? "" : '<option value="franchisor"' + (filters.access === "franchisor" ? " selected" : "") + '>Somente franqueadora</option>'}<option value="unit"${filters.access === "unit" ? " selected" : ""}>Franquia vinculada</option><option value="network"${filters.access === "network" ? " selected" : ""}>Toda a rede</option></select></div><div class="approved-document-grid">${documentCards || `<div class="approved-document-empty"><i data-lucide="files"></i><strong>Nenhum documento encontrado</strong><span>Envie um arquivo nesta pasta ou ajuste os filtros.</span></div>`}</div></section></div>`;
 }
 
 const approvedWizardSchemas = {
@@ -7807,6 +7895,42 @@ function approvedWizardField([name, label, type, detail], draft, extraClass = ""
   return `<label class="${extraClass}"><span>${escapeHtml(label)}*</span><input name="${escapeHtml(name)}" type="${escapeHtml(type)}" required value="${escapeHtml(value)}" placeholder="${escapeHtml(detail)}" /></label>`;
 }
 
+function approvedWizardUnitField(draft, units) {
+  const franchiseePortal = isFranchiseePortal();
+  const requestedUnitId = String(draft.unitId || "");
+  const selectedUnitId = franchiseePortal
+    ? (units.some((unit) => unit.id === requestedUnitId) ? requestedUnitId : units[0]?.id || "")
+    : requestedUnitId;
+  const placeholder = selectedUnitId
+    ? ""
+    : '<option value="" disabled selected>Selecione a unidade</option>';
+  const unitOptions = units.map((item) => `<option value="${escapeHtml(item.id)}"${selectedUnitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("");
+  const networkOption = franchiseePortal
+    ? ""
+    : `<option value="network"${selectedUnitId === "network" ? " selected" : ""}>Toda a rede</option>`;
+  return `<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit>${placeholder}${unitOptions}${networkOption}</select></label>`;
+}
+
+function approvedDocumentMetadataFields(draft) {
+  const folders = state.documentFolders || [];
+  const selectedFolderId = draft.folderId || state.activeDocumentFolderId || "root";
+  const selectedAccess = draft.accessScope || (isFranchiseePortal() ? "unit" : "network");
+  const folderOptions = ['<option value="root">Biblioteca principal</option>']
+    .concat(folders.map((folder) => {
+      let level = 0;
+      let parentId = folder.parentId;
+      while (parentId) {
+        level += 1;
+        parentId = folders.find((item) => item.id === parentId)?.parentId || "";
+      }
+      return `<option value="${escapeHtml(folder.id)}"${selectedFolderId === folder.id ? " selected" : ""}>${"-- ".repeat(level)}${escapeHtml(folder.name)}</option>`;
+    })).join("");
+  const accessOptions = isFranchiseePortal()
+    ? '<option value="unit" selected>Somente minha franquia</option>'
+    : `<option value="network"${selectedAccess === "network" ? " selected" : ""}>Toda a rede</option><option value="unit"${selectedAccess === "unit" ? " selected" : ""}>Franqueadora e franquia selecionada</option><option value="franchisor"${selectedAccess === "franchisor" ? " selected" : ""}>Somente franqueadora</option>`;
+  return `<label><span>Pasta*</span><select name="folderId" required>${folderOptions}</select></label><label><span>Quem pode acessar*</span><select name="accessScope" required>${accessOptions}</select></label>`;
+}
+
 function renderApprovedWizard(modal) {
   const isUnit = modal.type === "new-unit";
   const moduleCode = modal.moduleCode || "operation";
@@ -7827,11 +7951,13 @@ function renderApprovedWizard(modal) {
       ["address", "Endereço completo", "text", "Logradouro, número, cidade e UF"],
     ].map((field) => approvedWizardField(field, draft)).join("");
   } else if (step === 1 && isExecutive) {
-    fields = `${approvedWizardField(["title", "Decisão", "text", "Decisão ou encaminhamento"], draft)}${approvedWizardField(["category", "Eixo estratégico", "select", ["Expansão", "Operação", "Financeiro", "Pessoas", "Governança"]], draft)}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>${approvedWizardField(["owner", "Responsável", "text", "Nome do responsável"], draft)}`;
+    fields = `${approvedWizardField(["title", "Decisão", "text", "Decisão ou encaminhamento"], draft)}${approvedWizardField(["category", "Eixo estratégico", "select", ["Expansão", "Operação", "Financeiro", "Pessoas", "Governança"]], draft)}${approvedWizardUnitField(draft, units)}${approvedWizardField(["owner", "Responsável", "text", "Nome do responsável"], draft)}`;
   } else if (step === 1 && isIndicator) {
     fields = approvedWizardSchema("indicators").map((field) => approvedWizardField(field, draft)).join("");
+  } else if (step === 1 && moduleCode === "documentation") {
+    fields = `${approvedWizardSchema(moduleCode).map((field) => approvedWizardField(field, draft)).join("")}${approvedDocumentMetadataFields(draft)}${approvedWizardUnitField(draft, units)}`;
   } else if (step === 1) {
-    fields = `${approvedWizardSchema(moduleCode).map((field) => approvedWizardField(field, draft)).join("")}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>`;
+    fields = `${approvedWizardSchema(moduleCode).map((field) => approvedWizardField(field, draft)).join("")}${approvedWizardUnitField(draft, units)}`;
   } else if (step === 2 && isUnit) {
     fields = `${approvedWizardField(["franchisee", "Franqueado", "text", "Nome do titular"], draft)}${approvedWizardField(["owner", "Responsável corporativo", "text", "Responsável pela implantação"], draft)}${approvedWizardField(["openingDate", "Inauguração prevista", "date", ""], draft)}<div class="approved-required-docs"><span>Documentos mínimos*</span><button type="button"><i data-lucide="files"></i><strong>Contrato social, CNPJ e contrato de franquia</strong><small>Os arquivos poderão ser anexados na pasta digital da unidade.</small></button></div>`;
   } else if (step === 2 && isExecutive) {
@@ -7840,7 +7966,7 @@ function renderApprovedWizard(modal) {
     const statusValues = [...new Set(definition.workflow.flatMap(([, statuses]) => statuses).filter((status) => status !== "Rascunho"))];
     fields = `${approvedWizardField(["deadline", "Prazo da decisão", "date", ""], draft)}<label><span>Status*</span><select name="status" required>${statusValues.map((option) => `<option${(draft.status || statusValues[0]) === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label><span>Prioridade*</span><select name="priority" required>${["Baixa", "Média", "Alta", "Crítica"].map((option) => `<option${(draft.priority || "Média") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label class="span-2"><span>Contexto e próximos passos*</span><textarea name="notes" rows="6" required placeholder="Registre o contexto, o encaminhamento e o resultado esperado">${escapeHtml(draft.notes || "")}</textarea></label>${selectedUnit ? `<div class="span-2 approved-attachment-field"><span>Anexo ou evidência</span>${attachmentControl(draft.attachment || "", selectedUnit, "department:executive:decisao", 'name="attachment"', departmentModuleCode("executive"))}</div>` : ""}`;
   } else if (step === 2 && isIndicator) {
-    fields = `${approvedWizardField(["category", "Categoria", "select", ["Implantação", "Credenciamento", "Operação", "Financeiro", "Pessoas", "Qualidade"]], draft)}<label><span>Unidade*</span><select name="unitId" required data-approved-modal-unit><option value="" disabled${draft.unitId ? "" : " selected"}>Selecione a unidade</option>${units.map((item) => `<option value="${escapeHtml(item.id)}"${draft.unitId === item.id ? " selected" : ""}>${escapeHtml(item.city)}${item.state ? `/${escapeHtml(item.state)}` : ""}</option>`).join("")}<option value="network"${draft.unitId === "network" ? " selected" : ""}>Toda a rede</option></select></label>${approvedWizardField(["owner", "Responsável", "text", "Nome ou área responsável"], draft)}${approvedWizardField(["frequency", "Periodicidade", "select", ["Diária", "Semanal", "Mensal", "Trimestral"]], draft)}${approvedWizardField(["value", "Resultado inicial", "number", "0"], draft)}${approvedWizardField(["meta", "Meta", "number", "100"], draft)}<label><span>Status*</span><select name="status" required>${["Pendente", "Em Andamento", "Concluído"].map((option) => `<option${(draft.status || "Pendente") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label>`;
+    fields = `${approvedWizardField(["category", "Categoria", "select", ["Implantação", "Credenciamento", "Operação", "Financeiro", "Pessoas", "Qualidade"]], draft)}${approvedWizardUnitField(draft, units)}${approvedWizardField(["owner", "Responsável", "text", "Nome ou área responsável"], draft)}${approvedWizardField(["frequency", "Periodicidade", "select", ["Diária", "Semanal", "Mensal", "Trimestral"]], draft)}${approvedWizardField(["value", "Resultado inicial", "number", "0"], draft)}${approvedWizardField(["meta", "Meta", "number", "100"], draft)}<label><span>Status*</span><select name="status" required>${["Pendente", "Em Andamento", "Concluído"].map((option) => `<option${(draft.status || "Pendente") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label>`;
   } else if (step === 2) {
     const selectedUnit = unit || units[0];
     fields = `${approvedWizardField(["owner", "Responsável", "text", "Nome ou equipe"], draft)}${approvedWizardField(["deadline", "Prazo", "date", ""], draft)}<label><span>Status*</span><select name="status" required>${["Pendente", "Em Andamento", "Em análise", "Concluído"].map((option) => `<option${(draft.status || "Pendente") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label><span>Prioridade*</span><select name="priority" required>${["Baixa", "Média", "Alta", "Crítica"].map((option) => `<option${(draft.priority || "Média") === option ? " selected" : ""}>${option}</option>`).join("")}</select></label><label class="span-2"><span>Observações</span><textarea name="notes" rows="5" placeholder="Contexto, decisões e próximos passos">${escapeHtml(draft.notes || "")}</textarea></label>${selectedUnit ? `<div class="span-2 approved-attachment-field"><span>Anexo ou evidência</span>${attachmentControl(draft.attachment || "", selectedUnit, `department:${moduleCode}:registro`, 'name="attachment"', departmentModuleCode(moduleCode))}</div>` : ""}`;
@@ -7892,7 +8018,8 @@ function renderApprovedModal() {
   const active = state.approvedTabs[moduleCode] || blueprint.tabs?.[0] || blueprint.title;
   const recordType = record?.recordType || `department:${moduleCode}:${slug(active)}`;
   const options = (values, current) => values.map((value) => `<option${value === current ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
-  return `<div class="approved-modal-backdrop reference-drawer-backdrop"><section class="approved-modal approved-drawer" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>${escapeHtml(blueprint.title)}</span><h2 id="approved-modal-title">Editar registro</h2><p>Atualize os campos, observações e evidências deste registro.</p></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><form data-approved-record-form data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(recordType)}" data-record-id="${escapeHtml(record?.recordId || "")}"><div class="approved-form-grid"><label class="span-2"><span>Título do registro</span><input name="title" required value="${escapeHtml(record?.title || "")}" placeholder="Descreva a demanda ou atividade" /></label><label><span>Unidade</span><select name="unitId" data-approved-modal-unit>${units.map((item)=>`<option value="${escapeHtml(item.id)}"${item.id===unit.id?" selected":""}>${escapeHtml(item.city)} ${escapeHtml(item.state||"")}</option>`).join("")}</select></label><label><span>Responsável</span><input name="owner" value="${escapeHtml(record?.owner || record?.responsible || "")}" placeholder="Nome ou equipe" /></label><label><span>Prazo</span><input name="deadline" type="date" value="${escapeHtml(record?.deadline || record?.dueDate || "")}" /></label><label><span>Status</span><select name="status">${options(["Pendente","Em Andamento","Em análise","Concluído","Cancelado"], record?.status || "Pendente")}</select></label><label><span>Prioridade</span><select name="priority">${options(["Baixa","Média","Alta","Crítica"], record?.priority || "Média")}</select></label><label><span>Categoria</span><input name="category" value="${escapeHtml(record?.category || active)}" /></label><label class="span-2"><span>Observações</span><textarea name="notes" rows="5" placeholder="Contexto, decisões e próximos passos">${escapeHtml(record?.notes || "")}</textarea></label><div class="span-2 approved-attachment-field"><span>Anexo</span>${attachmentControl(record?.attachment || "", unit, recordType, 'name="attachment"', departmentModuleCode(moduleCode))}</div></div><footer><button class="approved-secondary" data-approved-modal-close type="button">Cancelar</button><button class="approved-primary" type="submit"><i data-lucide="save"></i>Salvar alterações</button></footer></form></section></div>`;
+  const documentMetadata = moduleCode === "documentation" ? approvedDocumentMetadataFields(record || {}) : "";
+  return `<div class="approved-modal-backdrop reference-drawer-backdrop"><section class="approved-modal approved-drawer" role="dialog" aria-modal="true" aria-labelledby="approved-modal-title"><header><div><span>${escapeHtml(blueprint.title)}</span><h2 id="approved-modal-title">Editar registro</h2><p>Atualize os campos, observações e evidências deste registro.</p></div><button class="icon-button" data-approved-modal-close type="button" aria-label="Fechar"><i data-lucide="x"></i></button></header><form data-approved-record-form data-module-code="${escapeHtml(moduleCode)}" data-record-type="${escapeHtml(recordType)}" data-record-id="${escapeHtml(record?.recordId || "")}"><div class="approved-form-grid"><label class="span-2"><span>Título do registro</span><input name="title" required value="${escapeHtml(record?.title || "")}" placeholder="Descreva a demanda ou atividade" /></label><label><span>Unidade</span><select name="unitId" data-approved-modal-unit>${units.map((item)=>`<option value="${escapeHtml(item.id)}"${item.id===unit.id?" selected":""}>${escapeHtml(item.city)} ${escapeHtml(item.state||"")}</option>`).join("")}</select></label><label><span>Responsável</span><input name="owner" value="${escapeHtml(record?.owner || record?.responsible || "")}" placeholder="Nome ou equipe" /></label><label><span>Prazo</span><input name="deadline" type="date" value="${escapeHtml(record?.deadline || record?.dueDate || "")}" /></label><label><span>Status</span><select name="status">${options(["Pendente","Em Andamento","Em análise","Concluído","Cancelado"], record?.status || "Pendente")}</select></label><label><span>Prioridade</span><select name="priority">${options(["Baixa","Média","Alta","Crítica"], record?.priority || "Média")}</select></label><label><span>Categoria</span><input name="category" value="${escapeHtml(record?.category || active)}" /></label>${documentMetadata}<label class="span-2"><span>Observações</span><textarea name="notes" rows="5" placeholder="Contexto, decisões e próximos passos">${escapeHtml(record?.notes || "")}</textarea></label><div class="span-2 approved-attachment-field"><span>Anexo</span>${attachmentControl(record?.attachment || "", unit, recordType, 'name="attachment"', departmentModuleCode(moduleCode))}</div></div><footer><button class="approved-secondary" data-approved-modal-close type="button">Cancelar</button><button class="approved-primary" type="submit"><i data-lucide="save"></i>Salvar alterações</button></footer></form></section></div>`;
 }
 
 function approvedWizardValues(form) {
@@ -7948,6 +8075,9 @@ async function finishApprovedWizard(form) {
 }
 
 async function createRecordFromApprovedWizard(moduleCode, values) {
+  if (isFranchiseePortal() && !roadmapUnits().some((unit) => unit.id === values.unitId)) {
+    throw new Error("O registro deve ser vinculado à sua própria franquia.");
+  }
   const unitId = values.unitId === "network" ? (roadmapUnits()[0]?.id || "") : values.unitId;
   if (!unitId) throw new Error("Selecione uma unidade para o registro.");
   const active = state.approvedTabs[moduleCode] || approvedModuleBlueprints[moduleCode]?.tabs?.[0] || "Registro";
